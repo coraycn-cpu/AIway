@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { readFileSync } from "fs";
+import { readdirSync, readFileSync } from "fs";
 import { resolve } from "path";
 import postgres from "postgres";
 
@@ -15,11 +15,19 @@ async function main() {
   }
 
   const sql = postgres(url, { max: 1, prepare: false });
-  const file = resolve(process.cwd(), "supabase/migrations/001_init.sql");
-  const migration = readFileSync(file, "utf8");
-  await sql.unsafe(migration);
+  const dir = resolve(process.cwd(), "supabase/migrations");
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+
+  for (const file of files) {
+    const migration = readFileSync(resolve(dir, file), "utf8");
+    console.log(`Applying ${file}...`);
+    await sql.unsafe(migration);
+  }
+
   await sql.end();
-  console.log("Migration applied. Admin: admin@qq.com / 123456");
+  console.log("Migrations applied. Admin: admin@qq.com / 123456");
 }
 
 main().catch((err) => {

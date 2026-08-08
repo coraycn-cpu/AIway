@@ -1,5 +1,11 @@
 import { getSql } from "@/lib/db";
 import type { PromptTemplate, Task } from "@/lib/db/schema";
+import {
+  parseInputSchema,
+  schemaToExampleInput,
+  validateInputAgainstSchema,
+  type InputFieldSchema,
+} from "@/lib/prompts/schema";
 
 export class PromptError extends Error {
   status: number;
@@ -30,6 +36,8 @@ export async function loadTaskAndPrompt(taskCode: string, siteId: string) {
     throw new PromptError("Task not found or disabled", 404);
   }
 
+  const schema = parseInputSchema(task.input_schema);
+
   const sitePrompt = await sql<PromptTemplate[]>`
     SELECT * FROM prompt_templates
     WHERE task_id = ${task.id} AND site_id = ${siteId} AND is_active = TRUE
@@ -37,7 +45,7 @@ export async function loadTaskAndPrompt(taskCode: string, siteId: string) {
     LIMIT 1
   `;
   if (sitePrompt[0]) {
-    return { task, prompt: sitePrompt[0], scope: "site" as const };
+    return { task, prompt: sitePrompt[0], scope: "site" as const, schema };
   }
 
   const globalPrompt = await sql<PromptTemplate[]>`
@@ -47,7 +55,20 @@ export async function loadTaskAndPrompt(taskCode: string, siteId: string) {
     LIMIT 1
   `;
   if (!globalPrompt[0]) {
-    throw new PromptError("Prompt template not found", 404);
+    throw new PromptError("Prompt template not found: 请先为该任务配置全局默认提示词", 404);
   }
-  return { task, prompt: globalPrompt[0], scope: "global" as const };
+  return { task, prompt: globalPrompt[0], scope: "global" as const, schema };
 }
+
+export function assertInputMatchesTaskSchema(
+  schema: InputFieldSchema[],
+  input: Record<string, unknown>,
+) {
+  const result = validateInputAgainstSchema(schema, input);
+  if (!result.ok) {
+    throw new PromptError(`缺少必填字段: ${result.missing.join(", ")}`, 400);
+  }
+}
+
+export { parseInputSchema, schemaToExampleInput, validateInputAgainstSchema };
+export type { InputFieldSchema };

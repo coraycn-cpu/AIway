@@ -1,11 +1,20 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Tip } from "../../tip";
 
-type Task = { id: string; task_code: string };
-type Site = { id: string; code: string };
+type Task = {
+  id: string;
+  task_code: string;
+  name: string;
+  input_schema?: Array<{ key: string; required?: boolean }>;
+  has_global_prompt?: boolean;
+};
+type Site = { id: string; code: string; name: string };
 type Prompt = {
   id: string;
+  task_id: string;
   task_code: string;
   site_code: string | null;
   version: number;
@@ -23,6 +32,11 @@ export default function PromptsPage() {
   const [systemTemplate, setSystemTemplate] = useState("");
   const [userTemplate, setUserTemplate] = useState("{{message}}");
   const [msg, setMsg] = useState("");
+
+  const selectedTask = useMemo(
+    () => tasks.find((t) => t.id === taskId) || null,
+    [tasks, taskId],
+  );
 
   async function load() {
     const [t, s, p] = await Promise.all([
@@ -59,30 +73,74 @@ export default function PromptsPage() {
       setMsg(data?.error?.message || "保存失败");
       return;
     }
-    setMsg("提示词已保存并激活（站点优先于全局）");
+    setMsg(
+      siteId
+        ? "已激活站点覆盖。该站调用此 task 时优先用这套提示词。"
+        : "已激活全局默认。未覆盖站点都会使用它。",
+    );
     load();
   }
 
   return (
     <div className="page">
       <h1>提示词管理</h1>
-      <p className="muted">选择规则：站点专属 → 全局默认。变量用 {"{{field}}"}。</p>
+      <Tip title="提示词不定义能力，任务才定义能力">
+        <p>
+          先在「任务」里定 <code>task_code</code> 与输入字段；这里只决定「怎么说」。
+          服装/五金差异：选同一任务，再选不同站点做覆盖。
+        </p>
+        <p>
+          更完整的编排（预览、回滚、覆盖一览）请进入{" "}
+          {selectedTask ? (
+            <Link href={`/tasks/${selectedTask.id}`}>任务详情页</Link>
+          ) : (
+            <Link href="/tasks">任务管理</Link>
+          )}
+          。
+        </p>
+      </Tip>
+
       <form className="stack-form" onSubmit={onCreate}>
-        <select value={taskId} onChange={(e) => setTaskId(e.target.value)} required>
-          {tasks.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.task_code}
-            </option>
-          ))}
-        </select>
-        <select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
-          <option value="">全局默认</option>
-          {sites.map((s) => (
-            <option key={s.id} value={s.id}>
-              站点覆盖：{s.code}
-            </option>
-          ))}
-        </select>
+        <label>
+          任务能力
+          <select value={taskId} onChange={(e) => setTaskId(e.target.value)} required>
+            {tasks.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.task_code} / {t.name}
+                {!t.has_global_prompt ? "（缺全局提示词）" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          作用范围
+          <select value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+            <option value="">全局默认</option>
+            {sites.map((s) => (
+              <option key={s.id} value={s.id}>
+                站点覆盖：{s.code} / {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedTask?.input_schema?.length ? (
+          <div className="chip-row">
+            <span className="muted">可用变量：</span>
+            {selectedTask.input_schema.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                className="chip"
+                onClick={() => setUserTemplate((v) => `${v}{{${f.key}}}`)}
+              >
+                {`{{${f.key}}}`}
+                {f.required ? "*" : ""}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">该任务尚未声明输入字段，建议先到任务详情补充契约。</p>
+        )}
         <textarea
           rows={3}
           placeholder="system template"
@@ -112,7 +170,9 @@ export default function PromptsPage() {
         <tbody>
           {items.map((p) => (
             <tr key={p.id}>
-              <td>{p.task_code}</td>
+              <td>
+                <Link href={`/tasks/${p.task_id}`}>{p.task_code}</Link>
+              </td>
               <td>{p.site_code || "全局"}</td>
               <td>v{p.version}</td>
               <td>{p.is_active ? "是" : "否"}</td>

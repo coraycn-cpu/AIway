@@ -48,10 +48,12 @@ export type Task = {
   id: string;
   task_code: string;
   name: string;
+  description: string | null;
   default_model_id: string;
   temperature: string;
   max_tokens: number;
   status: TaskStatus;
+  input_schema: unknown;
   created_at: Date;
   updated_at: Date;
 };

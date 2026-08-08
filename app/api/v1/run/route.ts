@@ -5,7 +5,11 @@ import { runGatewayModel } from "@/lib/ai";
 import { assertCanSpend, calcCost, chargeAccount } from "@/lib/billing";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
-import { loadTaskAndPrompt, renderTemplate } from "@/lib/prompts";
+import {
+  assertInputMatchesTaskSchema,
+  loadTaskAndPrompt,
+  renderTemplate,
+} from "@/lib/prompts";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +42,11 @@ export async function POST(req: Request) {
 
     await assertCanSpend(auth.account.id);
 
-    const { task, prompt } = await loadTaskAndPrompt(parsed.data.task, auth.site.id);
+    const { task, prompt, schema, scope } = await loadTaskAndPrompt(
+      parsed.data.task,
+      auth.site.id,
+    );
+    assertInputMatchesTaskSchema(schema, parsed.data.input);
     const system = renderTemplate(prompt.system_template, parsed.data.input);
     const userPrompt = renderTemplate(prompt.user_template, parsed.data.input);
 
@@ -133,6 +141,7 @@ export async function POST(req: Request) {
     return jsonOk({
       request_id: requestId,
       output_text: outputText,
+      prompt_scope: scope,
       usage: {
         input_tokens: inputTokens,
         output_tokens: outputTokens,

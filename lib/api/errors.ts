@@ -23,7 +23,11 @@ export function handleApiError(err: unknown) {
   }
   console.error(err);
   const message = err instanceof Error ? err.message : "Internal server error";
-  if (message.includes("DATABASE_URL") || message.includes("ADMIN_SESSION_SECRET")) {
+  if (
+    message.includes("DATABASE_URL") ||
+    message.includes("POSTGRES_URL") ||
+    message.includes("ADMIN_SESSION_SECRET")
+  ) {
     return jsonError(500, "500", "Server misconfigured: missing environment variables");
   }
   return jsonError(500, "500", message);

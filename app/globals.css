@@ -253,6 +253,87 @@ td {
   line-height: 1.7;
 }
 
+.tip {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin: 14px 0 18px;
+  background: #fffdf8;
+}
+
+.tip strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.tip-body p,
+.tip-body ol {
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+
+.tip-body ol {
+  padding-left: 1.2rem;
+}
+
+.tip-info {
+  border-left: 4px solid var(--accent-2);
+}
+
+.tip-warn {
+  border-left: 4px solid #b7791f;
+  background: #fff8eb;
+}
+
+.tip-ok {
+  border-left: 4px solid var(--ok);
+  background: #f2faf4;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.chip,
+button.chip {
+  background: #eef6f3;
+  color: var(--accent);
+  border: 1px solid #cfe0d9;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.preview-box {
+  background: #1c1915;
+  color: #f4efe6;
+  border-radius: 12px;
+  padding: 14px;
+  overflow: auto;
+  margin: 10px 0 16px;
+}
+
+.preview-box h3 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+  color: #c8bfae;
+}
+
+.preview-box pre {
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.row-selected td {
+  background: rgba(15, 92, 76, 0.08);
+}
+
 .home-hero {
   min-height: 100vh;
   display: grid;
