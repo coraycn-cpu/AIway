@@ -334,6 +334,161 @@ button.chip {
   background: rgba(15, 92, 76, 0.08);
 }
 
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fffdf8;
+  margin: 14px 0 18px;
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 18px 0;
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.panel-head .muted {
+  margin: 4px 0 0;
+}
+
+.panel-body {
+  padding: 14px 18px 18px;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.layout-2 {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.field input,
+.field select,
+.field textarea,
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-secondary,
+button.btn-secondary {
+  background: #eef3f1 !important;
+  color: var(--accent) !important;
+  border: 1px solid #c9d8d2 !important;
+}
+
+.link-btn {
+  display: inline-block;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(15, 92, 76, 0.1);
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+.tip-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  background: transparent !important;
+  color: inherit !important;
+  border: none !important;
+  padding: 0 !important;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tip-toggle strong {
+  margin: 0;
+}
+
+.tip-toggle span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.tip-body {
+  margin-top: 10px;
+}
+
 .home-hero {
   min-height: 100vh;
   display: grid;
@@ -371,5 +526,11 @@ button.chip {
   }
   .stat-grid {
     grid-template-columns: 1fr 1fr;
+  }
+  .layout-2,
+  .form-row-2,
+  .page-header {
+    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 }

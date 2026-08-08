@@ -31,11 +31,16 @@ Vercel ↔ Supabase 集成常见变量：`POSTGRES_URL`、`POSTGRES_URL_NON_POOL
 
 ## 数据库迁移
 
-在已配置 `DATABASE_URL` 的环境执行：
+在已配置 `DATABASE_URL` / `POSTGRES_URL` 的环境执行：
 
 ```bash
 npm run db:migrate
 ```
+
+或在 Supabase SQL Editor 中按文件名顺序执行：
+
+1. `supabase/migrations/001_init.sql`
+2. `supabase/migrations/002_task_input_schema.sql`
 
 会创建全部表，并写入管理员、默认模型、示例任务 `ping`。
 

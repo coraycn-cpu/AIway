@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { Tip } from "../../tip";
+import { Field, Panel } from "../../ui";
 
 type SiteRow = {
   id: string;
@@ -76,7 +77,7 @@ export default function SitesPage() {
     }
     setCode("");
     setName("");
-    setMsg("站点已创建。接着发 Token、充值，并到任务详情为该站配置提示词覆盖（如需要）。");
+    setMsg("站点已创建。下一步：发 Token → 充值 → 到任务详情配置站点提示词覆盖（如需）。");
     load();
   }
 
@@ -91,96 +92,134 @@ export default function SitesPage() {
 
   return (
     <div className="page">
-      <h1>站点管理</h1>
+      <div className="page-header">
+        <div>
+          <h1>站点管理</h1>
+          <p className="muted">站点负责身份与计费；能力在任务里，话术用提示词覆盖。</p>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => {
+            setCode("apparel");
+            setName("服装商城");
+          }}
+        >
+          填入示例
+        </button>
+      </div>
+
       <Tip title="站点不拥有任务，站点调用任务">
         <p>
-          开户只解决「谁在调用、花谁的钱」。能力在「任务」里定义；本站若要不同话术，去对应任务详情添加
-          <b>站点提示词覆盖</b>（例：服装站 / 五金站共用 <code>product_desc</code>）。
+          服装/五金若文案不同，共用同一 task，在任务详情做站点提示词覆盖即可。
         </p>
       </Tip>
 
-      <form className="inline-form" onSubmit={onCreate}>
-        <input
-          placeholder="site code，如 apparel / hardware"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          required
-        />
-        <input
-          placeholder="站点名称，如服装商城"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <button type="submit">开户/创建站点</button>
-      </form>
-      {msg ? <p className="ok">{msg}</p> : null}
+      <Panel title="开户 / 创建站点">
+        <form className="form-grid" onSubmit={onCreate}>
+          <div className="form-row-2">
+            <Field label="site code" hint="示例：apparel / hardware">
+              <input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="apparel"
+                required
+              />
+            </Field>
+            <Field label="站点名称" hint="示例：服装商城">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="服装商城"
+                required
+              />
+            </Field>
+          </div>
+          <div className="form-actions">
+            <button type="submit">创建站点</button>
+          </div>
+        </form>
+        {msg ? <p className="ok">{msg}</p> : null}
+      </Panel>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Code</th>
-            <th>名称</th>
-            <th>状态</th>
-            <th>余额</th>
-            <th>月额度</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((s) => (
-            <tr key={s.id} className={selectedId === s.id ? "row-selected" : undefined}>
-              <td className="mono">{s.code}</td>
-              <td>{s.name}</td>
-              <td>{s.status}</td>
-              <td>{Number(s.balance || 0).toFixed(4)}</td>
-              <td>{s.month_quota ?? "-"}</td>
-              <td className="inline-form">
-                <button type="button" onClick={() => setSelectedId(s.id)}>
-                  查看能力命中
-                </button>
-                <button type="button" onClick={() => toggle(s.id, s.status)}>
-                  {s.status === "active" ? "停用" : "启用"}
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Panel title="站点列表">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>名称</th>
+                <th>状态</th>
+                <th>余额</th>
+                <th>月额度</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((s) => (
+                <tr key={s.id} className={selectedId === s.id ? "row-selected" : undefined}>
+                  <td className="mono">{s.code}</td>
+                  <td>{s.name}</td>
+                  <td>{s.status}</td>
+                  <td>{Number(s.balance || 0).toFixed(4)}</td>
+                  <td>{s.month_quota ?? "-"}</td>
+                  <td>
+                    <div className="inline-form">
+                      <button type="button" className="btn-secondary" onClick={() => setSelectedId(s.id)}>
+                        查看命中
+                      </button>
+                      <button type="button" onClick={() => toggle(s.id, s.status)}>
+                        {s.status === "active" ? "停用" : "启用"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
 
-      <h2>该站任务命中情况</h2>
-      {coverageTip ? <p className="muted">{coverageTip}</p> : null}
-      <table>
-        <thead>
-          <tr>
-            <th>任务</th>
-            <th>实际命中</th>
-            <th>全局版本</th>
-            <th>站点覆盖版本</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {coverage.map((c) => (
-            <tr key={c.task_id}>
-              <td>
-                <div className="mono">{c.task_code}</div>
-                <div className="muted">{c.task_name}</div>
-              </td>
-              <td>
-                {c.resolve_scope === "site" && <span className="ok">站点覆盖</span>}
-                {c.resolve_scope === "global" && <span>全局默认</span>}
-                {c.resolve_scope === "missing" && <span className="error">缺失提示词</span>}
-              </td>
-              <td>{c.global_version ? `v${c.global_version}` : "-"}</td>
-              <td>{c.site_version ? `v${c.site_version}` : "-"}</td>
-              <td>
-                <Link href={`/tasks/${c.task_id}`}>去配置</Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Panel
+        title="该站任务命中情况"
+        subtitle={coverageTip || "显示当前选中站点对每个任务会命中全局还是覆盖"}
+      >
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>任务</th>
+                <th>实际命中</th>
+                <th>全局版本</th>
+                <th>站点覆盖</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {coverage.map((c) => (
+                <tr key={c.task_id}>
+                  <td>
+                    <div className="mono">{c.task_code}</div>
+                    <div className="muted small">{c.task_name}</div>
+                  </td>
+                  <td>
+                    {c.resolve_scope === "site" && <span className="ok">站点覆盖</span>}
+                    {c.resolve_scope === "global" && <span>全局默认</span>}
+                    {c.resolve_scope === "missing" && <span className="error">缺失提示词</span>}
+                  </td>
+                  <td>{c.global_version ? `v${c.global_version}` : "-"}</td>
+                  <td>{c.site_version ? `v${c.site_version}` : "-"}</td>
+                  <td>
+                    <Link className="link-btn" href={`/tasks/${c.task_id}`}>
+                      去配置
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
     </div>
   );
 }

@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { Tip } from "../../tip";
+import { Field, Panel } from "../../ui";
 
-type Field = { key: string; label?: string; required?: boolean; example?: string };
+type FieldSchema = { key: string; label?: string; required?: boolean; example?: string };
 
 type Task = {
   id: string;
@@ -15,7 +16,7 @@ type Task = {
   temperature: string;
   max_tokens: number;
   status: string;
-  input_schema: Field[];
+  input_schema: FieldSchema[];
   has_global_prompt?: boolean;
   site_override_count?: number;
 };
@@ -25,18 +26,19 @@ type Model = { model_id: string; display_name: string };
 export default function TasksPage() {
   const [items, setItems] = useState<Task[]>([]);
   const [models, setModels] = useState<Model[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
-    task_code: "product_desc",
-    name: "商品描述生成",
-    description: "各行业商品文案能力。服装/五金差异用站点提示词覆盖，不必拆多个 task。",
+    task_code: "",
+    name: "",
+    description: "",
     default_model_id: "openai/gpt-4o-mini",
     temperature: "0.7",
     max_tokens: "2048",
-    input_schema_text: "product_name*,color,material",
+    input_schema_text: "",
   });
   const [msg, setMsg] = useState("");
 
-  function parseFields(text: string): Field[] {
+  function parseFields(text: string): FieldSchema[] {
     return text
       .split(/[,，\n]/)
       .map((s) => s.trim())
@@ -55,16 +57,30 @@ export default function TasksPage() {
     ]);
     setItems(t.items || []);
     setModels(m.items || []);
-    if (m.items?.[0] && form.default_model_id === "openai/gpt-4o-mini") {
-      const exists = m.items.some((x: Model) => x.model_id === form.default_model_id);
-      if (!exists) setForm((f) => ({ ...f, default_model_id: m.items[0].model_id }));
+    if (m.items?.[0]) {
+      setForm((f) => {
+        const exists = m.items.some((x: Model) => x.model_id === f.default_model_id);
+        return exists ? f : { ...f, default_model_id: m.items[0].model_id };
+      });
     }
   }
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function fillExample() {
+    setForm({
+      task_code: "product_desc",
+      name: "商品描述生成",
+      description: "各行业商品文案。服装/五金差异用站点提示词覆盖，不必拆多个 task。",
+      default_model_id: models[0]?.model_id || "openai/gpt-4o-mini",
+      temperature: "0.7",
+      max_tokens: "2048",
+      input_schema_text: "product_name*,color,material",
+    });
+    setShowCreate(true);
+  }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -86,127 +102,174 @@ export default function TasksPage() {
       setMsg(data?.error?.message || "创建失败");
       return;
     }
-    setMsg("任务已创建。请进入详情页配置「全局默认提示词」，再按需为服装/五金站做站点覆盖。");
+    setMsg("任务已创建，请进入详情配置全局提示词");
+    setShowCreate(false);
+    setForm({
+      task_code: "",
+      name: "",
+      description: "",
+      default_model_id: models[0]?.model_id || "openai/gpt-4o-mini",
+      temperature: "0.7",
+      max_tokens: "2048",
+      input_schema_text: "",
+    });
     load();
   }
 
   return (
     <div className="page">
-      <h1>任务管理</h1>
-      <Tip title="怎么理解 Task？">
+      <div className="page-header">
+        <div>
+          <h1>任务管理</h1>
+          <p className="muted">Task = 能力名。行业差异请在详情页用站点提示词覆盖。</p>
+        </div>
+        <div className="header-actions">
+          <button type="button" className="btn-secondary" onClick={fillExample}>
+            填入示例
+          </button>
+          <button type="button" onClick={() => setShowCreate((v) => !v)}>
+            {showCreate ? "收起创建" : "新建任务"}
+          </button>
+        </div>
+      </div>
+
+      <Tip title="配置顺序：建任务 → 全局提示词 → 站点覆盖">
         <p>
-          <b>Task = 能力名（业务站调用契约）</b>，例如统一用 <code>product_desc</code>。
-          服装站和五金站可以共用同一 task；行业话术差异请到任务详情里做
-          <b>站点提示词覆盖</b>，而不是先拆一堆 task。
-        </p>
-        <p>
-          推荐顺序：① 创建任务并声明输入字段 → ② 配置全局默认提示词 → ③
-          仅为需要差异化的站点添加覆盖。
+          服装站与五金站共用同一 <code>task_code</code>（如 product_desc），只在提示词层面做差异。
         </p>
       </Tip>
 
-      <form className="stack-form" onSubmit={onCreate}>
-        <input
-          placeholder="task_code（业务站传这个名）"
-          value={form.task_code}
-          onChange={(e) => setForm({ ...form, task_code: e.target.value })}
-          required
-        />
-        <input
-          placeholder="显示名称"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          required
-        />
-        <textarea
-          rows={2}
-          placeholder="能力说明（给管理员看）"
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-        />
-        <label>
-          输入字段契约（逗号分隔；加 * 表示必填）
-          <input
-            value={form.input_schema_text}
-            onChange={(e) => setForm({ ...form, input_schema_text: e.target.value })}
-            placeholder="product_name*,color,material"
-          />
-        </label>
-        <p className="muted">
-          业务站 <code>/run</code> 的 <code>input</code> 应按此字段传值；提示词里用{" "}
-          <code>{"{{product_name}}"}</code> 引用。
-        </p>
-        <select
-          value={form.default_model_id}
-          onChange={(e) => setForm({ ...form, default_model_id: e.target.value })}
+      {showCreate ? (
+        <Panel
+          title="新建任务"
+          subtitle="先定义业务站要传的字段；提示词稍后再写。"
         >
-          {models.map((m) => (
-            <option key={m.model_id} value={m.model_id}>
-              {m.display_name} ({m.model_id})
-            </option>
-          ))}
-        </select>
-        <div className="inline-form">
-          <input
-            type="number"
-            step="0.1"
-            value={form.temperature}
-            onChange={(e) => setForm({ ...form, temperature: e.target.value })}
-            title="temperature"
-          />
-          <input
-            type="number"
-            value={form.max_tokens}
-            onChange={(e) => setForm({ ...form, max_tokens: e.target.value })}
-            title="max_tokens"
-          />
-          <button type="submit">创建任务</button>
-        </div>
-      </form>
+          <form className="form-grid" onSubmit={onCreate}>
+            <Field label="task_code" hint="示例：product_desc（业务站 /run 传这个名）">
+              <input
+                value={form.task_code}
+                onChange={(e) => setForm({ ...form, task_code: e.target.value })}
+                placeholder="product_desc"
+                required
+              />
+            </Field>
+            <Field label="显示名称" hint="示例：商品描述生成">
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="商品描述生成"
+                required
+              />
+            </Field>
+            <Field
+              label="能力说明"
+              hint="示例：各行业商品文案。服装/五金用站点覆盖提示词。"
+            >
+              <textarea
+                rows={2}
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="各行业商品文案。服装/五金差异用站点提示词覆盖。"
+              />
+            </Field>
+            <Field
+              label="输入字段契约"
+              hint="逗号分隔；加 * 表示必填。示例：product_name*,color,material"
+            >
+              <input
+                value={form.input_schema_text}
+                onChange={(e) => setForm({ ...form, input_schema_text: e.target.value })}
+                placeholder="product_name*,color,material"
+              />
+            </Field>
+            <Field label="默认模型">
+              <select
+                value={form.default_model_id}
+                onChange={(e) => setForm({ ...form, default_model_id: e.target.value })}
+              >
+                {models.map((m) => (
+                  <option key={m.model_id} value={m.model_id}>
+                    {m.display_name} ({m.model_id})
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="form-row-2">
+              <Field label="temperature" hint="示例：0.7">
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.temperature}
+                  onChange={(e) => setForm({ ...form, temperature: e.target.value })}
+                />
+              </Field>
+              <Field label="max_tokens" hint="示例：2048">
+                <input
+                  type="number"
+                  value={form.max_tokens}
+                  onChange={(e) => setForm({ ...form, max_tokens: e.target.value })}
+                />
+              </Field>
+            </div>
+            <div className="form-actions">
+              <button type="submit">创建任务</button>
+            </div>
+          </form>
+        </Panel>
+      ) : null}
+
       {msg ? <p className="ok">{msg}</p> : null}
 
-      <table>
-        <thead>
-          <tr>
-            <th>Code</th>
-            <th>名称</th>
-            <th>输入字段</th>
-            <th>全局提示词</th>
-            <th>站点覆盖</th>
-            <th>模型</th>
-            <th>状态</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((t) => (
-            <tr key={t.id}>
-              <td className="mono">{t.task_code}</td>
-              <td>
-                {t.name}
-                {t.description ? <div className="muted">{t.description}</div> : null}
-              </td>
-              <td className="mono">
-                {(t.input_schema || []).map((f) => f.key + (f.required ? "*" : "")).join(", ") ||
-                  "-"}
-              </td>
-              <td>
-                {t.has_global_prompt ? (
-                  <span className="ok">已配置</span>
-                ) : (
-                  <span className="error">缺失</span>
-                )}
-              </td>
-              <td>{t.site_override_count || 0}</td>
-              <td className="mono">{t.default_model_id}</td>
-              <td>{t.status}</td>
-              <td>
-                <Link href={`/tasks/${t.id}`}>详情 / 提示词</Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Panel title="任务列表" subtitle="点击「配置提示词」进入详情中心">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>能力</th>
+                <th>输入字段</th>
+                <th>提示词状态</th>
+                <th>模型</th>
+                <th>状态</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((t) => (
+                <tr key={t.id}>
+                  <td>
+                    <div className="mono">{t.task_code}</div>
+                    <div>{t.name}</div>
+                    {t.description ? <div className="muted small">{t.description}</div> : null}
+                  </td>
+                  <td className="mono">
+                    {(t.input_schema || [])
+                      .map((f) => f.key + (f.required ? "*" : ""))
+                      .join(", ") || "-"}
+                  </td>
+                  <td>
+                    <div>
+                      全局：
+                      {t.has_global_prompt ? (
+                        <span className="ok">已配</span>
+                      ) : (
+                        <span className="error">缺失</span>
+                      )}
+                    </div>
+                    <div className="muted small">站点覆盖 {t.site_override_count || 0}</div>
+                  </td>
+                  <td className="mono small">{t.default_model_id}</td>
+                  <td>{t.status}</td>
+                  <td>
+                    <Link className="link-btn" href={`/tasks/${t.id}`}>
+                      配置提示词
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
     </div>
   );
 }
