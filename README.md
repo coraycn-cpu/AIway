@@ -53,7 +53,7 @@ npm run db:migrate
 - `/tokens` Token（明文仅创建时显示一次）
 - `/tasks` 任务
 - `/prompts` 提示词（站点专属 → 全局默认）
-- `/models` 模型对客户售价
+- `/models` 模型对客户售价（含 DeepSeek / Gemini；可一键同步）
 - `/logs` 全局调用日志
 
 ## 业务站 Open API

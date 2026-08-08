@@ -136,7 +136,16 @@ INSERT INTO model_catalog (model_id, display_name, input_price_per_1m, output_pr
 VALUES
   ('openai/gpt-4o-mini', 'GPT-4o Mini', 0.15, 0.60, TRUE),
   ('openai/gpt-4o', 'GPT-4o', 2.50, 10.00, TRUE),
-  ('anthropic/claude-sonnet-4', 'Claude Sonnet 4', 3.00, 15.00, TRUE)
+  ('anthropic/claude-sonnet-4', 'Claude Sonnet 4', 3.00, 15.00, TRUE),
+  ('deepseek/deepseek-v4-flash', 'DeepSeek V4 Flash', 0.05, 0.10, TRUE),
+  ('deepseek/deepseek-v4-pro', 'DeepSeek V4 Pro', 0.40, 1.20, TRUE),
+  ('deepseek/deepseek-v3.2', 'DeepSeek V3.2', 0.28, 0.42, TRUE),
+  ('deepseek/deepseek-r1', 'DeepSeek R1', 0.55, 2.19, TRUE),
+  ('google/gemini-2.0-flash', 'Gemini 2.0 Flash', 0.10, 0.40, TRUE),
+  ('google/gemini-2.5-flash', 'Gemini 2.5 Flash', 0.30, 2.50, TRUE),
+  ('google/gemini-2.5-pro', 'Gemini 2.5 Pro', 1.25, 10.00, TRUE),
+  ('google/gemini-3-flash', 'Gemini 3 Flash', 0.50, 3.00, TRUE),
+  ('google/gemini-3.5-flash', 'Gemini 3.5 Flash', 0.50, 3.00, TRUE)
 ON CONFLICT (model_id) DO NOTHING;
 
 -- Demo task: ping
