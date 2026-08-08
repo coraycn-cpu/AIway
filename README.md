@@ -21,10 +21,13 @@
 复制 `.env.example`，在 Vercel Project Settings → Environment Variables 中配置：
 
 ```text
+# 若已接 Vercel 内置 Supabase，通常已有 POSTGRES_URL，可不再单独加 DATABASE_URL
 DATABASE_URL=postgresql://...
 AI_GATEWAY_API_KEY=...
 ADMIN_SESSION_SECRET=请换成足够长的随机串
 ```
+
+Vercel ↔ Supabase 集成常见变量：`POSTGRES_URL`、`POSTGRES_URL_NON_POOLING` 等。应用会自动回退读取 `POSTGRES_URL`。
 
 ## 数据库迁移
 

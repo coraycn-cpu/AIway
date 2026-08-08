@@ -4,9 +4,13 @@ import { resolve } from "path";
 import postgres from "postgres";
 
 async function main() {
-  const url = process.env.DATABASE_URL;
+  const url =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING;
   if (!url) {
-    console.error("DATABASE_URL is required");
+    console.error("DATABASE_URL or POSTGRES_URL is required");
     process.exit(1);
   }
 

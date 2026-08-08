@@ -5,10 +5,22 @@ declare global {
   var __aiwaySql: ReturnType<typeof postgres> | undefined;
 }
 
+function resolveDatabaseUrl() {
+  return (
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    ""
+  );
+}
+
 function createSql() {
-  const url = process.env.DATABASE_URL;
+  const url = resolveDatabaseUrl();
   if (!url) {
-    throw new Error("DATABASE_URL is not set");
+    throw new Error(
+      "DATABASE_URL (or POSTGRES_URL from Vercel Supabase) is not set",
+    );
   }
   return postgres(url, {
     max: 10,
