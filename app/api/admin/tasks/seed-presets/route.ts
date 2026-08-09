@@ -1,40 +1,70 @@
 import { requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
-import { handleApiError, jsonOk } from "@/lib/api/errors";
+import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
 import { CAPABILITY_PRESETS } from "@/lib/presets/capabilities";
 
 export const dynamic = "force-dynamic";
 
 async function ensureTaskColumns() {
   const sql = getSql();
-  await sql.unsafe(`
-    ALTER TABLE tasks
-      ADD COLUMN IF NOT EXISTS description TEXT,
-      ADD COLUMN IF NOT EXISTS input_schema JSONB NOT NULL DEFAULT '[]'::jsonb;
-  `);
+
+  // Prefer separate statements — more compatible with pooled Supabase connections.
+  await sql.unsafe(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT`);
+  await sql.unsafe(
+    `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS input_schema JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  );
+
+  const cols = await sql<{ column_name: string }[]>`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'tasks'
+      AND column_name IN ('description', 'input_schema')
+  `;
+  const names = new Set(cols.map((c) => c.column_name));
+  if (!names.has("description") || !names.has("input_schema")) {
+    throw new Error(
+      "无法自动添加 tasks.description / input_schema。请在 Supabase SQL Editor 执行 supabase/migrations/002_task_input_schema.sql 后重试。",
+    );
+  }
 }
 
 export async function GET() {
   try {
     await requireAdmin();
-    await ensureTaskColumns();
     const sql = getSql();
+
+    let schemaReady = true;
+    try {
+      await ensureTaskColumns();
+    } catch {
+      schemaReady = false;
+    }
+
     const codes = CAPABILITY_PRESETS.map((p) => p.task_code);
-    const rows = await sql<{ task_code: string; status: string }[]>`
-      SELECT task_code, status FROM tasks WHERE task_code = ANY(${codes})
-    `;
+    let rows: { task_code: string; status: string }[] = [];
+    try {
+      rows = await sql<{ task_code: string; status: string }[]>`
+        SELECT task_code, status FROM tasks WHERE task_code = ANY(${codes})
+      `;
+    } catch {
+      rows = [];
+    }
+
     const present = new Set(rows.map((r) => r.task_code));
     const missing = codes.filter((c) => !present.has(c));
     const disabled = rows.filter((r) => r.status !== "active").map((r) => r.task_code);
 
     return jsonOk({
+      schema_ready: schemaReady,
       expected: codes,
       present: [...present],
       missing,
       disabled,
-      ready: missing.length === 0 && disabled.length === 0,
-      tip:
-        missing.length || disabled.length
+      ready: schemaReady && missing.length === 0 && disabled.length === 0,
+      tip: !schemaReady
+        ? "数据库缺少 description/input_schema 字段。请先执行迁移 002，或再点一次同步（会尝试自动补齐）。"
+        : missing.length || disabled.length
           ? "预置能力未齐，请点击「同步预置能力」。"
           : "预置能力已就绪。",
     });
@@ -46,7 +76,13 @@ export async function GET() {
 export async function POST() {
   try {
     await requireAdmin();
-    await ensureTaskColumns();
+    try {
+      await ensureTaskColumns();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "schema ensure failed";
+      return jsonError(500, "500", message);
+    }
+
     const sql = getSql();
     const results: Array<{
       task_code: string;

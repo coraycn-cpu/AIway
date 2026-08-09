@@ -103,7 +103,10 @@ export default function TasksPage() {
     const data = await res.json();
     setSeeding(false);
     if (!res.ok) {
-      setMsg(data?.error?.message || "预置失败");
+      setMsg(
+        data?.error?.message ||
+          "预置失败。若提示缺少 description 字段，请先在 Supabase 执行迁移 002，再点同步。",
+      );
       return;
     }
     setMsg(data.tip || "预置能力已同步");
