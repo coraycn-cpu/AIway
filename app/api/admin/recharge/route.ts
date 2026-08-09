@@ -3,21 +3,50 @@ import { requireAdmin } from "@/lib/auth";
 import { recharge } from "@/lib/billing";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
+import { emptyToNull, ensureListIndexes, listMeta, parseListQuery } from "@/lib/admin/list-query";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
     await requireAdmin();
-    const accountId = new URL(req.url).searchParams.get("account_id");
+    await ensureListIndexes();
+    const url = new URL(req.url);
+    const { page, pageSize, offset, q } = parseListQuery(url, { pageSize: 20 });
+    const accountId = emptyToNull(url.searchParams.get("account_id"));
+    const type = emptyToNull(url.searchParams.get("type"));
+
     const sql = getSql();
-    const rows = await sql`
-      SELECT * FROM balance_ledgers
+    const countPromise = sql<{ total: string }[]>`
+      SELECT COUNT(*)::text AS total
+      FROM balance_ledgers
       WHERE (${accountId}::uuid IS NULL OR account_id = ${accountId}::uuid)
-      ORDER BY created_at DESC
-      LIMIT 200
+        AND (${type}::text IS NULL OR type = ${type})
+        AND (
+          ${q}::text IS NULL
+          OR COALESCE(note, '') ILIKE '%' || ${q} || '%'
+          OR COALESCE(created_by, '') ILIKE '%' || ${q} || '%'
+        )
     `;
-    return jsonOk({ items: rows });
+    const rowsPromise = sql`
+      SELECT id, account_id, site_id, type, amount::text AS amount,
+             balance_after::text AS balance_after, note, created_by, created_at
+      FROM balance_ledgers
+      WHERE (${accountId}::uuid IS NULL OR account_id = ${accountId}::uuid)
+        AND (${type}::text IS NULL OR type = ${type})
+        AND (
+          ${q}::text IS NULL
+          OR COALESCE(note, '') ILIKE '%' || ${q} || '%'
+          OR COALESCE(created_by, '') ILIKE '%' || ${q} || '%'
+        )
+      ORDER BY created_at DESC
+      LIMIT ${pageSize} OFFSET ${offset}
+    `;
+    const [countRows, rows] = await Promise.all([countPromise, rowsPromise]);
+    return jsonOk({
+      items: rows,
+      ...listMeta(page, pageSize, Number(countRows[0]?.total ?? 0)),
+    });
   } catch (err) {
     return handleApiError(err);
   }

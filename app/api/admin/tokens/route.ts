@@ -2,23 +2,53 @@ import { z } from "zod";
 import { generateApiToken, requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
+import { emptyToNull, ensureListIndexes, listMeta, parseListQuery } from "@/lib/admin/list-query";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
     await requireAdmin();
-    const siteId = new URL(req.url).searchParams.get("site_id");
+    await ensureListIndexes();
+    const url = new URL(req.url);
+    const { page, pageSize, offset, q, status } = parseListQuery(url, { pageSize: 20 });
+    const siteId = emptyToNull(url.searchParams.get("site_id"));
+
     const sql = getSql();
-    const rows = await sql`
+    const countPromise = sql<{ total: string }[]>`
+      SELECT COUNT(*)::text AS total
+      FROM api_tokens t
+      JOIN sites s ON s.id = t.site_id
+      WHERE (${siteId}::uuid IS NULL OR t.site_id = ${siteId}::uuid)
+        AND (${status}::text IS NULL OR t.status = ${status})
+        AND (
+          ${q}::text IS NULL
+          OR t.prefix ILIKE '%' || ${q} || '%'
+          OR COALESCE(t.name, '') ILIKE '%' || ${q} || '%'
+          OR s.code ILIKE '%' || ${q} || '%'
+        )
+    `;
+    const rowsPromise = sql`
       SELECT t.id, t.site_id, t.account_id, t.prefix, t.name, t.status, t.last_used_at, t.created_at,
              s.code AS site_code
       FROM api_tokens t
       JOIN sites s ON s.id = t.site_id
       WHERE (${siteId}::uuid IS NULL OR t.site_id = ${siteId}::uuid)
+        AND (${status}::text IS NULL OR t.status = ${status})
+        AND (
+          ${q}::text IS NULL
+          OR t.prefix ILIKE '%' || ${q} || '%'
+          OR COALESCE(t.name, '') ILIKE '%' || ${q} || '%'
+          OR s.code ILIKE '%' || ${q} || '%'
+        )
       ORDER BY t.created_at DESC
+      LIMIT ${pageSize} OFFSET ${offset}
     `;
-    return jsonOk({ items: rows });
+    const [countRows, rows] = await Promise.all([countPromise, rowsPromise]);
+    return jsonOk({
+      items: rows,
+      ...listMeta(page, pageSize, Number(countRows[0]?.total ?? 0)),
+    });
   } catch (err) {
     return handleApiError(err);
   }

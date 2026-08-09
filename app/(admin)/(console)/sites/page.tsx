@@ -4,6 +4,15 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { Tip } from "../../tip";
 import { Field, Panel } from "../../ui";
+import {
+  EmptyTableRow,
+  ListTableShell,
+  ListToolbar,
+  Pagination,
+  useDebouncedValue,
+  usePagedList,
+} from "../../list-ui";
+import { invalidateAdminOptions } from "../../options-cache";
 
 type SiteRow = {
   id: string;
@@ -26,7 +35,6 @@ type CoverageItem = {
 };
 
 export default function SitesPage() {
-  const [items, setItems] = useState<SiteRow[]>([]);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [msg, setMsg] = useState("");
@@ -34,14 +42,16 @@ export default function SitesPage() {
   const [coverage, setCoverage] = useState<CoverageItem[]>([]);
   const [coverageTip, setCoverageTip] = useState("");
 
-  async function load() {
-    const res = await fetch("/api/admin/sites");
-    const data = await res.json();
-    if (res.ok) {
-      setItems(data.items || []);
-      if (!selectedId && data.items?.[0]) setSelectedId(data.items[0].id);
-    }
-  }
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("");
+  const [rawEnabled, setRawEnabled] = useState("");
+  const debouncedQ = useDebouncedValue(q, 300);
+
+  const list = usePagedList<SiteRow>("/api/admin/sites", {
+    q: debouncedQ,
+    status,
+    raw_enabled: rawEnabled,
+  });
 
   async function loadCoverage(siteId: string) {
     if (!siteId) return;
@@ -54,9 +64,8 @@ export default function SitesPage() {
   }
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!selectedId && list.items[0]) setSelectedId(list.items[0].id);
+  }, [list.items, selectedId]);
 
   useEffect(() => {
     if (selectedId) loadCoverage(selectedId);
@@ -79,25 +88,26 @@ export default function SitesPage() {
     setCode("");
     setName("");
     setMsg("站点已创建。下一步：发 Token → 充值 → 到任务详情配置站点提示词覆盖（如需）。");
-    load();
+    invalidateAdminOptions(["sites", "accounts"]);
+    list.reload();
   }
 
-  async function toggle(id: string, status: string) {
+  async function toggle(id: string, siteStatus: string) {
     await fetch("/api/admin/sites", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status: status === "active" ? "disabled" : "active" }),
+      body: JSON.stringify({ id, status: siteStatus === "active" ? "disabled" : "active" }),
     });
-    load();
+    list.reload();
   }
 
-  async function toggleRaw(id: string, rawEnabled: boolean) {
+  async function toggleRaw(id: string, enabled: boolean) {
     await fetch("/api/admin/sites", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, raw_enabled: !rawEnabled }),
+      body: JSON.stringify({ id, raw_enabled: !enabled }),
     });
-    load();
+    list.reload();
   }
 
   return (
@@ -120,12 +130,8 @@ export default function SitesPage() {
       </div>
 
       <Tip title="站点不拥有任务，站点调用任务">
-        <p>
-          服装/五金若文案不同，共用同一 task，在任务详情做站点提示词覆盖即可。
-        </p>
-        <p>
-          若业务站要自带提示词（Raw），先到「运行模式」开全局 Raw，再在本页打开该站 Raw。
-        </p>
+        <p>服装/五金若文案不同，共用同一 task，在任务详情做站点提示词覆盖即可。</p>
+        <p>若业务站要自带提示词（Raw），先到「运行模式」开全局 Raw，再在本页打开该站 Raw。</p>
       </Tip>
 
       <Panel title="开户 / 创建站点">
@@ -156,7 +162,27 @@ export default function SitesPage() {
       </Panel>
 
       <Panel title="站点列表">
-        <div className="table-wrap">
+        <ListToolbar onRefresh={list.reload} loading={list.busy}>
+          <input
+            className="list-search"
+            type="search"
+            placeholder="搜索 code / 名称"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">全部状态</option>
+            <option value="active">active</option>
+            <option value="disabled">disabled</option>
+          </select>
+          <select value={rawEnabled} onChange={(e) => setRawEnabled(e.target.value)}>
+            <option value="">Raw 全部</option>
+            <option value="true">Raw 已开</option>
+            <option value="false">Raw 关闭</option>
+          </select>
+        </ListToolbar>
+        {list.error ? <p className="error">{list.error}</p> : null}
+        <ListTableShell loading={list.loading} refreshing={list.refreshing}>
           <table>
             <thead>
               <tr>
@@ -170,36 +196,55 @@ export default function SitesPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((s) => (
-                <tr key={s.id} className={selectedId === s.id ? "row-selected" : undefined}>
-                  <td className="mono">{s.code}</td>
-                  <td>{s.name}</td>
-                  <td>{s.status}</td>
-                  <td>{s.raw_enabled ? <span className="ok">开</span> : <span className="muted">关</span>}</td>
-                  <td>{Number(s.balance || 0).toFixed(4)}</td>
-                  <td>{s.month_quota ?? "-"}</td>
-                  <td>
-                    <div className="inline-form">
-                      <button type="button" className="btn-secondary" onClick={() => setSelectedId(s.id)}>
-                        查看命中
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => toggleRaw(s.id, Boolean(s.raw_enabled))}
-                      >
-                        {s.raw_enabled ? "关 Raw" : "开 Raw"}
-                      </button>
-                      <button type="button" onClick={() => toggle(s.id, s.status)}>
-                        {s.status === "active" ? "停用" : "启用"}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {list.items.length === 0 ? (
+                <EmptyTableRow colSpan={7} text={list.loading ? "加载中…" : "暂无站点"} />
+              ) : (
+                list.items.map((s) => (
+                  <tr key={s.id} className={selectedId === s.id ? "row-selected" : undefined}>
+                    <td className="mono">{s.code}</td>
+                    <td>{s.name}</td>
+                    <td>{s.status}</td>
+                    <td>
+                      {s.raw_enabled ? <span className="ok">开</span> : <span className="muted">关</span>}
+                    </td>
+                    <td>{Number(s.balance || 0).toFixed(4)}</td>
+                    <td>{s.month_quota ?? "-"}</td>
+                    <td>
+                      <div className="inline-form">
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => setSelectedId(s.id)}
+                        >
+                          查看命中
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => toggleRaw(s.id, Boolean(s.raw_enabled))}
+                        >
+                          {s.raw_enabled ? "关 Raw" : "开 Raw"}
+                        </button>
+                        <button type="button" onClick={() => toggle(s.id, s.status)}>
+                          {s.status === "active" ? "停用" : "启用"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
-        </div>
+        </ListTableShell>
+        <Pagination
+          page={list.page}
+          pageSize={list.pageSize}
+          total={list.total}
+          onPageChange={list.setPage}
+          onPageSizeChange={list.setPageSize}
+        
+          disabled={list.busy}
+        />
       </Panel>
 
       <Panel
@@ -218,26 +263,30 @@ export default function SitesPage() {
               </tr>
             </thead>
             <tbody>
-              {coverage.map((c) => (
-                <tr key={c.task_id}>
-                  <td>
-                    <div className="mono">{c.task_code}</div>
-                    <div className="muted small">{c.task_name}</div>
-                  </td>
-                  <td>
-                    {c.resolve_scope === "site" && <span className="ok">站点覆盖</span>}
-                    {c.resolve_scope === "global" && <span>全局默认</span>}
-                    {c.resolve_scope === "missing" && <span className="error">缺失提示词</span>}
-                  </td>
-                  <td>{c.global_version ? `v${c.global_version}` : "-"}</td>
-                  <td>{c.site_version ? `v${c.site_version}` : "-"}</td>
-                  <td>
-                    <Link className="link-btn" href={`/tasks/${c.task_id}`}>
-                      去配置
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {coverage.length === 0 ? (
+                <EmptyTableRow colSpan={5} text="选择站点后查看命中" />
+              ) : (
+                coverage.map((c) => (
+                  <tr key={c.task_id}>
+                    <td>
+                      <div className="mono">{c.task_code}</div>
+                      <div className="muted small">{c.task_name}</div>
+                    </td>
+                    <td>
+                      {c.resolve_scope === "site" && <span className="ok">站点覆盖</span>}
+                      {c.resolve_scope === "global" && <span>全局默认</span>}
+                      {c.resolve_scope === "missing" && <span className="error">缺失提示词</span>}
+                    </td>
+                    <td>{c.global_version ? `v${c.global_version}` : "-"}</td>
+                    <td>{c.site_version ? `v${c.site_version}` : "-"}</td>
+                    <td>
+                      <Link className="link-btn" href={`/tasks/${c.task_id}`}>
+                        去配置
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
 import { parseInputSchema } from "@/lib/prompts";
+import { emptyToNull, ensureListIndexes, listMeta, parseListQuery } from "@/lib/admin/list-query";
 
 export const dynamic = "force-dynamic";
 
@@ -24,13 +25,51 @@ const taskSchema = z.object({
   input_schema: z.array(fieldSchema).optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     await requireAdmin();
+    await ensureListIndexes();
+    const url = new URL(req.url);
+    const { page, pageSize, offset, q, status } = parseListQuery(url, { pageSize: 20 });
+    const promptStatus = emptyToNull(url.searchParams.get("prompt_status"));
+
     const sql = getSql();
-    const rows = await sql`
+
+    const countPromise = sql<{ total: string }[]>`
+      SELECT COUNT(*)::text AS total
+      FROM tasks t
+      WHERE (${status}::text IS NULL OR t.status = ${status})
+        AND (
+          ${q}::text IS NULL
+          OR t.task_code ILIKE '%' || ${q} || '%'
+          OR t.name ILIKE '%' || ${q} || '%'
+          OR COALESCE(t.description, '') ILIKE '%' || ${q} || '%'
+          OR t.default_model_id ILIKE '%' || ${q} || '%'
+        )
+        AND (
+          ${promptStatus}::text IS NULL
+          OR (
+            ${promptStatus} = 'missing_global'
+            AND NOT EXISTS (
+              SELECT 1 FROM prompt_templates p
+              WHERE p.task_id = t.id AND p.site_id IS NULL AND p.is_active = TRUE
+            )
+          )
+          OR (
+            ${promptStatus} = 'has_global'
+            AND EXISTS (
+              SELECT 1 FROM prompt_templates p
+              WHERE p.task_id = t.id AND p.site_id IS NULL AND p.is_active = TRUE
+            )
+          )
+        )
+    `;
+
+    const rowsPromise = sql`
       SELECT
-        t.*,
+        t.id, t.task_code, t.name, t.description, t.default_model_id,
+        t.temperature::text AS temperature, t.max_tokens, t.status, t.input_schema,
+        t.created_at, t.updated_at,
         EXISTS (
           SELECT 1 FROM prompt_templates p
           WHERE p.task_id = t.id AND p.site_id IS NULL AND p.is_active = TRUE
@@ -41,13 +80,42 @@ export async function GET() {
           WHERE p.task_id = t.id AND p.site_id IS NOT NULL AND p.is_active = TRUE
         ) AS site_override_count
       FROM tasks t
+      WHERE (${status}::text IS NULL OR t.status = ${status})
+        AND (
+          ${q}::text IS NULL
+          OR t.task_code ILIKE '%' || ${q} || '%'
+          OR t.name ILIKE '%' || ${q} || '%'
+          OR COALESCE(t.description, '') ILIKE '%' || ${q} || '%'
+          OR t.default_model_id ILIKE '%' || ${q} || '%'
+        )
+        AND (
+          ${promptStatus}::text IS NULL
+          OR (
+            ${promptStatus} = 'missing_global'
+            AND NOT EXISTS (
+              SELECT 1 FROM prompt_templates p
+              WHERE p.task_id = t.id AND p.site_id IS NULL AND p.is_active = TRUE
+            )
+          )
+          OR (
+            ${promptStatus} = 'has_global'
+            AND EXISTS (
+              SELECT 1 FROM prompt_templates p
+              WHERE p.task_id = t.id AND p.site_id IS NULL AND p.is_active = TRUE
+            )
+          )
+        )
       ORDER BY t.created_at DESC
+      LIMIT ${pageSize} OFFSET ${offset}
     `;
+
+    const [countRows, rows] = await Promise.all([countPromise, rowsPromise]);
     return jsonOk({
       items: rows.map((r) => ({
         ...r,
         input_schema: parseInputSchema(r.input_schema),
       })),
+      ...listMeta(page, pageSize, Number(countRows[0]?.total ?? 0)),
     });
   } catch (err) {
     return handleApiError(err);

@@ -4,6 +4,15 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { Tip } from "../../tip";
 import { Field, Panel } from "../../ui";
+import {
+  EmptyTableRow,
+  ListTableShell,
+  ListToolbar,
+  Pagination,
+  useDebouncedValue,
+  usePagedList,
+} from "../../list-ui";
+import { fetchModelOptions, invalidateAdminOptions } from "../../options-cache";
 
 type FieldSchema = { key: string; label?: string; required?: boolean; example?: string };
 
@@ -24,7 +33,6 @@ type Task = {
 type Model = { model_id: string; display_name: string };
 
 export default function TasksPage() {
-  const [items, setItems] = useState<Task[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
@@ -44,6 +52,17 @@ export default function TasksPage() {
     tip: string;
   } | null>(null);
 
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("");
+  const [promptStatus, setPromptStatus] = useState("");
+  const debouncedQ = useDebouncedValue(q, 300);
+
+  const list = usePagedList<Task>("/api/admin/tasks", {
+    q: debouncedQ,
+    status,
+    prompt_status: promptStatus,
+  });
+
   function parseFields(text: string): FieldSchema[] {
     return text
       .split(/[,，\n]/)
@@ -56,14 +75,12 @@ export default function TasksPage() {
       });
   }
 
-  async function load() {
-    const [t, m, p] = await Promise.all([
-      fetch("/api/admin/tasks").then((r) => r.json()),
-      fetch("/api/admin/models").then((r) => r.json()),
+  async function loadMeta() {
+    const [m, p] = await Promise.all([
+      fetchModelOptions(),
       fetch("/api/admin/tasks/seed-presets").then((r) => r.json()),
     ]);
-    setItems(t.items || []);
-    setModels(m.items || []);
+    setModels(m);
     if (p && typeof p.ready === "boolean") {
       setPresetStatus({
         ready: p.ready,
@@ -71,16 +88,16 @@ export default function TasksPage() {
         tip: p.tip || "",
       });
     }
-    if (m.items?.[0]) {
+    if (m[0]) {
       setForm((f) => {
-        const exists = m.items.some((x: Model) => x.model_id === f.default_model_id);
-        return exists ? f : { ...f, default_model_id: m.items[0].model_id };
+        const exists = m.some((x: Model) => x.model_id === f.default_model_id);
+        return exists ? f : { ...f, default_model_id: m[0].model_id };
       });
     }
   }
 
   useEffect(() => {
-    load();
+    loadMeta();
   }, []);
 
   function fillExample() {
@@ -110,7 +127,9 @@ export default function TasksPage() {
       return;
     }
     setMsg(data.tip || "预置能力已同步");
-    load();
+    invalidateAdminOptions(["tasks"]);
+    list.reload();
+    loadMeta();
   }
 
   async function onCreate(e: FormEvent) {
@@ -133,6 +152,7 @@ export default function TasksPage() {
       setMsg(data?.error?.message || "创建失败");
       return;
     }
+    invalidateAdminOptions(["tasks"]);
     setMsg("任务已创建，请进入详情配置全局提示词");
     setShowCreate(false);
     setForm({
@@ -144,7 +164,7 @@ export default function TasksPage() {
       max_tokens: "2048",
       input_schema_text: "",
     });
-    load();
+    list.reload();
   }
 
   return (
@@ -190,10 +210,7 @@ export default function TasksPage() {
       )}
 
       {showCreate ? (
-        <Panel
-          title="新建任务"
-          subtitle="先定义业务站要传的字段；提示词稍后再写。"
-        >
+        <Panel title="新建任务" subtitle="先定义业务站要传的字段；提示词稍后再写。">
           <form className="form-grid" onSubmit={onCreate}>
             <Field label="task_code" hint="示例：product_desc（业务站 /run 传这个名）">
               <input
@@ -271,7 +288,27 @@ export default function TasksPage() {
       {msg ? <p className="ok">{msg}</p> : null}
 
       <Panel title="任务列表" subtitle="点击「配置提示词」进入详情中心">
-        <div className="table-wrap">
+        <ListToolbar onRefresh={list.reload} loading={list.busy}>
+          <input
+            className="list-search"
+            type="search"
+            placeholder="搜索 task_code / 名称 / 模型"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">全部状态</option>
+            <option value="active">active</option>
+            <option value="disabled">disabled</option>
+          </select>
+          <select value={promptStatus} onChange={(e) => setPromptStatus(e.target.value)}>
+            <option value="">提示词全部</option>
+            <option value="has_global">已配全局</option>
+            <option value="missing_global">缺全局</option>
+          </select>
+        </ListToolbar>
+        {list.error ? <p className="error">{list.error}</p> : null}
+        <ListTableShell loading={list.loading} refreshing={list.refreshing}>
           <table>
             <thead>
               <tr>
@@ -284,41 +321,54 @@ export default function TasksPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((t) => (
-                <tr key={t.id}>
-                  <td>
-                    <div className="mono">{t.task_code}</div>
-                    <div>{t.name}</div>
-                    {t.description ? <div className="muted small">{t.description}</div> : null}
-                  </td>
-                  <td className="mono">
-                    {(t.input_schema || [])
-                      .map((f) => f.key + (f.required ? "*" : ""))
-                      .join(", ") || "-"}
-                  </td>
-                  <td>
-                    <div>
-                      全局：
-                      {t.has_global_prompt ? (
-                        <span className="ok">已配</span>
-                      ) : (
-                        <span className="error">缺失</span>
-                      )}
-                    </div>
-                    <div className="muted small">站点覆盖 {t.site_override_count || 0}</div>
-                  </td>
-                  <td className="mono small">{t.default_model_id}</td>
-                  <td>{t.status}</td>
-                  <td>
-                    <Link className="link-btn" href={`/tasks/${t.id}`}>
-                      配置提示词
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {list.items.length === 0 ? (
+                <EmptyTableRow colSpan={6} text={list.loading ? "加载中…" : "暂无任务"} />
+              ) : (
+                list.items.map((t) => (
+                  <tr key={t.id}>
+                    <td>
+                      <div className="mono">{t.task_code}</div>
+                      <div>{t.name}</div>
+                      {t.description ? <div className="muted small">{t.description}</div> : null}
+                    </td>
+                    <td className="mono">
+                      {(t.input_schema || [])
+                        .map((f) => f.key + (f.required ? "*" : ""))
+                        .join(", ") || "-"}
+                    </td>
+                    <td>
+                      <div>
+                        全局：
+                        {t.has_global_prompt ? (
+                          <span className="ok">已配</span>
+                        ) : (
+                          <span className="error">缺失</span>
+                        )}
+                      </div>
+                      <div className="muted small">站点覆盖 {t.site_override_count || 0}</div>
+                    </td>
+                    <td className="mono small">{t.default_model_id}</td>
+                    <td>{t.status}</td>
+                    <td>
+                      <Link className="link-btn" href={`/tasks/${t.id}`}>
+                        配置提示词
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
-        </div>
+        </ListTableShell>
+        <Pagination
+          page={list.page}
+          pageSize={list.pageSize}
+          total={list.total}
+          onPageChange={list.setPage}
+          onPageSizeChange={list.setPageSize}
+        
+          disabled={list.busy}
+        />
       </Panel>
     </div>
   );

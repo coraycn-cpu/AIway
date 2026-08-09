@@ -4,6 +4,15 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Tip } from "../../tip";
 import { Field, Panel, usePromptAssist } from "../../ui";
+import {
+  EmptyTableRow,
+  ListTableShell,
+  ListToolbar,
+  Pagination,
+  useDebouncedValue,
+  usePagedList,
+} from "../../list-ui";
+import { fetchSiteOptions, fetchTaskOptions, invalidateAdminOptions } from "../../options-cache";
 
 type Task = {
   id: string;
@@ -27,7 +36,6 @@ type Prompt = {
 export default function PromptsPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
-  const [items, setItems] = useState<Prompt[]>([]);
   const [taskId, setTaskId] = useState("");
   const [siteId, setSiteId] = useState("");
   const [industryHint, setIndustryHint] = useState("");
@@ -35,6 +43,19 @@ export default function PromptsPage() {
   const [userTemplate, setUserTemplate] = useState("");
   const [msg, setMsg] = useState("");
   const { assist, loading, error, notes } = usePromptAssist();
+
+  const [filterTaskId, setFilterTaskId] = useState("");
+  const [filterScope, setFilterScope] = useState("");
+  const [filterActive, setFilterActive] = useState("");
+  const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q, 300);
+
+  const list = usePagedList<Prompt>("/api/admin/prompts", {
+    task_id: filterTaskId,
+    scope: filterScope,
+    active: filterActive,
+    q: debouncedQ,
+  });
 
   const selectedTask = useMemo(
     () => tasks.find((t) => t.id === taskId) || null,
@@ -45,20 +66,15 @@ export default function PromptsPage() {
     [sites, siteId],
   );
 
-  async function load() {
-    const [t, s, p] = await Promise.all([
-      fetch("/api/admin/tasks").then((r) => r.json()),
-      fetch("/api/admin/sites").then((r) => r.json()),
-      fetch("/api/admin/prompts").then((r) => r.json()),
-    ]);
-    setTasks(t.items || []);
-    setSites(s.items || []);
-    setItems(p.items || []);
-    if (!taskId && t.items?.[0]) setTaskId(t.items[0].id);
+  async function loadOptions() {
+    const [taskItems, siteItems] = await Promise.all([fetchTaskOptions(), fetchSiteOptions()]);
+    setTasks(taskItems);
+    setSites(siteItems);
+    if (!taskId && taskItems[0]) setTaskId(taskItems[0].id);
   }
 
   useEffect(() => {
-    load();
+    loadOptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -107,7 +123,9 @@ export default function PromptsPage() {
       return;
     }
     setMsg(siteId ? "已激活站点覆盖提示词" : "已激活全局默认提示词");
-    load();
+    invalidateAdminOptions(["tasks"]);
+    list.reload();
+    loadOptions();
   }
 
   return (
@@ -189,10 +207,7 @@ export default function PromptsPage() {
               <p className="muted">该任务还没字段契约，建议先到任务详情补充。</p>
             )}
 
-            <Field
-              label="system 模板"
-              hint="示例：你是资深电商文案助手，不要编造规格。"
-            >
+            <Field label="system 模板" hint="示例：你是资深电商文案助手，不要编造规格。">
               <textarea
                 rows={4}
                 value={systemTemplate}
@@ -216,10 +231,20 @@ export default function PromptsPage() {
             </Field>
 
             <div className="form-actions">
-              <button type="button" className="btn-secondary" disabled={loading} onClick={() => runAssist("draft")}>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={loading}
+                onClick={() => runAssist("draft")}
+              >
                 {loading ? "AI 生成中..." : "AI 起草"}
               </button>
-              <button type="button" className="btn-secondary" disabled={loading} onClick={() => runAssist("improve")}>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={loading}
+                onClick={() => runAssist("improve")}
+              >
                 {loading ? "AI 优化中..." : "AI 优化当前稿"}
               </button>
               <button type="submit" disabled={!userTemplate.trim()}>
@@ -233,7 +258,35 @@ export default function PromptsPage() {
         </Panel>
 
         <Panel title="已保存版本" subtitle="仅展示摘要；回滚请到任务详情">
-          <div className="table-wrap">
+          <ListToolbar onRefresh={list.reload} loading={list.busy}>
+            <input
+              className="list-search"
+              type="search"
+              placeholder="搜索任务 / 站点 / 模板"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <select value={filterTaskId} onChange={(e) => setFilterTaskId(e.target.value)}>
+              <option value="">全部任务</option>
+              {tasks.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.task_code}
+                </option>
+              ))}
+            </select>
+            <select value={filterScope} onChange={(e) => setFilterScope(e.target.value)}>
+              <option value="">全部范围</option>
+              <option value="global">全局</option>
+              <option value="site">站点覆盖</option>
+            </select>
+            <select value={filterActive} onChange={(e) => setFilterActive(e.target.value)}>
+              <option value="">激活状态</option>
+              <option value="true">仅激活</option>
+              <option value="false">仅历史</option>
+            </select>
+          </ListToolbar>
+          {list.error ? <p className="error">{list.error}</p> : null}
+          <ListTableShell loading={list.loading} refreshing={list.refreshing}>
             <table>
               <thead>
                 <tr>
@@ -244,19 +297,32 @@ export default function PromptsPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((p) => (
-                  <tr key={p.id}>
-                    <td>
-                      <Link href={`/tasks/${p.task_id}`}>{p.task_code}</Link>
-                    </td>
-                    <td>{p.site_code || "全局"}</td>
-                    <td>v{p.version}</td>
-                    <td>{p.is_active ? "是" : "否"}</td>
-                  </tr>
-                ))}
+                {list.items.length === 0 ? (
+                  <EmptyTableRow colSpan={4} text={list.loading ? "加载中…" : "暂无版本"} />
+                ) : (
+                  list.items.map((p) => (
+                    <tr key={p.id}>
+                      <td>
+                        <Link href={`/tasks/${p.task_id}`}>{p.task_code}</Link>
+                      </td>
+                      <td>{p.site_code || "全局"}</td>
+                      <td>v{p.version}</td>
+                      <td>{p.is_active ? "是" : "否"}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
-          </div>
+          </ListTableShell>
+          <Pagination
+            page={list.page}
+            pageSize={list.pageSize}
+            total={list.total}
+            onPageChange={list.setPage}
+            onPageSizeChange={list.setPageSize}
+          
+          disabled={list.busy}
+        />
         </Panel>
       </div>
     </div>

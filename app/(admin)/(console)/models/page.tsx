@@ -1,8 +1,17 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Tip } from "../../tip";
 import { Field, Panel } from "../../ui";
+import {
+  EmptyTableRow,
+  ListTableShell,
+  ListToolbar,
+  Pagination,
+  useDebouncedValue,
+  usePagedList,
+} from "../../list-ui";
+import { invalidateAdminOptions } from "../../options-cache";
 
 type Model = {
   id: string;
@@ -23,8 +32,6 @@ function providerOf(modelId: string) {
 }
 
 export default function ModelsPage() {
-  const [items, setItems] = useState<Model[]>([]);
-  const [filter, setFilter] = useState("all");
   const [form, setForm] = useState({
     model_id: "",
     display_name: "",
@@ -33,31 +40,26 @@ export default function ModelsPage() {
   });
   const [msg, setMsg] = useState("");
   const [seeding, setSeeding] = useState(false);
+  const [q, setQ] = useState("");
+  const [provider, setProvider] = useState("");
+  const [enabled, setEnabled] = useState("");
+  const debouncedQ = useDebouncedValue(q, 300);
 
-  async function load() {
-    const res = await fetch("/api/admin/models");
-    const data = await res.json();
-    if (res.ok) setItems(data.items || []);
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
+  const list = usePagedList<Model>("/api/admin/models", {
+    q: debouncedQ,
+    provider,
+    enabled,
+  }, { defaultPageSize: 50 });
 
   const grouped = useMemo(() => {
     const map = new Map<string, Model[]>();
-    for (const m of items) {
-      if (filter !== "all") {
-        const p = m.model_id.split("/")[0];
-        if (filter === "gemini" && p !== "google") continue;
-        if (filter !== "gemini" && p !== filter) continue;
-      }
+    for (const m of list.items) {
       const key = providerOf(m.model_id);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(m);
     }
     return [...map.entries()];
-  }, [items, filter]);
+  }, [list.items]);
 
   function fillExample(kind: "deepseek" | "gemini") {
     if (kind === "deepseek") {
@@ -93,6 +95,7 @@ export default function ModelsPage() {
       setMsg(data?.error?.message || "保存失败");
       return;
     }
+    invalidateAdminOptions(["models"]);
     setMsg("模型已保存（对客户售价）");
     setForm({
       model_id: "",
@@ -100,7 +103,7 @@ export default function ModelsPage() {
       input_price_per_1m: "0.3",
       output_price_per_1m: "2.5",
     });
-    load();
+    list.reload();
   }
 
   async function seedDefaults() {
@@ -114,16 +117,17 @@ export default function ModelsPage() {
       return;
     }
     setMsg(data.tip || `已同步 ${data.upserted} 个模型`);
-    setItems(data.items || []);
+    invalidateAdminOptions(["models"]);
+    list.reload();
   }
 
-  async function toggle(id: string, enabled: boolean) {
+  async function toggle(id: string, isEnabled: boolean) {
     await fetch("/api/admin/models", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, enabled: !enabled }),
+      body: JSON.stringify({ id, enabled: !isEnabled }),
     });
-    load();
+    list.reload();
   }
 
   return (
@@ -202,53 +206,83 @@ export default function ModelsPage() {
         {msg ? <p className="ok">{msg}</p> : null}
       </Panel>
 
-      <Panel
-        title="已启用目录"
-        actions={
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="all">全部厂商</option>
+      <Panel title="模型目录">
+        <ListToolbar onRefresh={list.reload} loading={list.busy}>
+          <input
+            className="list-search"
+            type="search"
+            placeholder="搜索 model_id / 显示名"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+            <option value="">全部厂商</option>
             <option value="deepseek">DeepSeek</option>
             <option value="gemini">Gemini</option>
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic</option>
           </select>
-        }
-      >
-        {grouped.map(([provider, rows]) => (
-          <div key={provider} style={{ marginBottom: 18 }}>
-            <h3 style={{ margin: "0 0 8px", fontSize: "1rem" }}>{provider}</h3>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>model_id</th>
-                    <th>显示名</th>
-                    <th>输入价/1M</th>
-                    <th>输出价/1M</th>
-                    <th>启用</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((m) => (
-                    <tr key={m.id}>
-                      <td className="mono">{m.model_id}</td>
-                      <td>{m.display_name}</td>
-                      <td>{m.input_price_per_1m}</td>
-                      <td>{m.output_price_per_1m}</td>
-                      <td>{m.enabled ? "是" : "否"}</td>
-                      <td>
-                        <button type="button" className="btn-secondary" onClick={() => toggle(m.id, m.enabled)}>
-                          {m.enabled ? "停用" : "启用"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))}
+          <select value={enabled} onChange={(e) => setEnabled(e.target.value)}>
+            <option value="">启用状态</option>
+            <option value="true">已启用</option>
+            <option value="false">已停用</option>
+          </select>
+        </ListToolbar>
+        {list.error ? <p className="error">{list.error}</p> : null}
+        <ListTableShell loading={list.loading} refreshing={list.refreshing} bare>
+          {list.items.length === 0 ? (
+            <p className="muted">{list.loading ? "加载中…" : "暂无模型"}</p>
+          ) : (
+            grouped.map(([group, rows]) => (
+              <div key={group} style={{ marginBottom: 18 }}>
+                <h3 style={{ margin: "0 0 8px", fontSize: "1rem" }}>{group}</h3>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>model_id</th>
+                        <th>显示名</th>
+                        <th>输入价/1M</th>
+                        <th>输出价/1M</th>
+                        <th>启用</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((m) => (
+                        <tr key={m.id}>
+                          <td className="mono">{m.model_id}</td>
+                          <td>{m.display_name}</td>
+                          <td>{m.input_price_per_1m}</td>
+                          <td>{m.output_price_per_1m}</td>
+                          <td>{m.enabled ? "是" : "否"}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => toggle(m.id, m.enabled)}
+                            >
+                              {m.enabled ? "停用" : "启用"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))
+          )}
+        </ListTableShell>
+
+        <Pagination
+          page={list.page}
+          pageSize={list.pageSize}
+          total={list.total}
+          onPageChange={list.setPage}
+          onPageSizeChange={list.setPageSize}
+          disabled={list.busy}
+        />
       </Panel>
     </div>
   );

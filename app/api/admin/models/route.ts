@@ -2,15 +2,55 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
+import { emptyToNull, ensureListIndexes, listMeta, parseListQuery } from "@/lib/admin/list-query";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     await requireAdmin();
+    await ensureListIndexes();
+    const url = new URL(req.url);
+    const { page, pageSize, offset, q } = parseListQuery(url, { pageSize: 50 });
+    let provider = emptyToNull(url.searchParams.get("provider"));
+    if (provider === "gemini") provider = "google";
+    const enabledParam = emptyToNull(url.searchParams.get("enabled"));
+    const enabled =
+      enabledParam === null ? null : enabledParam === "true" || enabledParam === "1";
+
     const sql = getSql();
-    const rows = await sql`SELECT * FROM model_catalog ORDER BY created_at DESC`;
-    return jsonOk({ items: rows });
+    const countPromise = sql<{ total: string }[]>`
+      SELECT COUNT(*)::text AS total
+      FROM model_catalog
+      WHERE (${provider}::text IS NULL OR split_part(model_id, '/', 1) = ${provider})
+        AND (${enabled}::boolean IS NULL OR enabled = ${enabled})
+        AND (
+          ${q}::text IS NULL
+          OR model_id ILIKE '%' || ${q} || '%'
+          OR display_name ILIKE '%' || ${q} || '%'
+        )
+    `;
+    const rowsPromise = sql`
+      SELECT id, model_id, display_name,
+             input_price_per_1m::text AS input_price_per_1m,
+             output_price_per_1m::text AS output_price_per_1m,
+             enabled, created_at, updated_at
+      FROM model_catalog
+      WHERE (${provider}::text IS NULL OR split_part(model_id, '/', 1) = ${provider})
+        AND (${enabled}::boolean IS NULL OR enabled = ${enabled})
+        AND (
+          ${q}::text IS NULL
+          OR model_id ILIKE '%' || ${q} || '%'
+          OR display_name ILIKE '%' || ${q} || '%'
+        )
+      ORDER BY created_at DESC
+      LIMIT ${pageSize} OFFSET ${offset}
+    `;
+    const [countRows, rows] = await Promise.all([countPromise, rowsPromise]);
+    return jsonOk({
+      items: rows,
+      ...listMeta(page, pageSize, Number(countRows[0]?.total ?? 0)),
+    });
   } catch (err) {
     return handleApiError(err);
   }

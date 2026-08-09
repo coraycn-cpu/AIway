@@ -211,6 +211,97 @@ textarea {
   margin: 14px 0;
 }
 
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.list-toolbar-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1 1 280px;
+}
+
+.list-toolbar-filters input,
+.list-toolbar-filters select {
+  min-width: 140px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.list-toolbar-filters input[type="search"],
+.list-toolbar-filters input.list-search {
+  min-width: 200px;
+  flex: 1 1 200px;
+}
+
+.list-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.pagination-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.pagination-controls select {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: #fff;
+}
+
+.pagination-meta {
+  line-height: 1.4;
+}
+
+.pagination.is-disabled {
+  opacity: 0.72;
+}
+
+.list-table-shell {
+  position: relative;
+}
+
+.list-table-shell.is-refreshing .table-wrap {
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.list-table-shell.is-loading .table-wrap {
+  min-height: 120px;
+}
+
+.list-loading-hint,
+.list-refresh-hint {
+  margin: 0 0 8px;
+}
+
 .stack-form {
   flex-direction: column;
 }
