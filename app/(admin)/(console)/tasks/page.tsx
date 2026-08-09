@@ -37,6 +37,7 @@ export default function TasksPage() {
     input_schema_text: "",
   });
   const [msg, setMsg] = useState("");
+  const [seeding, setSeeding] = useState(false);
 
   function parseFields(text: string): FieldSchema[] {
     return text
@@ -82,6 +83,20 @@ export default function TasksPage() {
     setShowCreate(true);
   }
 
+  async function seedPresets() {
+    setSeeding(true);
+    setMsg("");
+    const res = await fetch("/api/admin/tasks/seed-presets", { method: "POST" });
+    const data = await res.json();
+    setSeeding(false);
+    if (!res.ok) {
+      setMsg(data?.error?.message || "预置失败");
+      return;
+    }
+    setMsg(data.tip || "预置能力已同步");
+    load();
+  }
+
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     const res = await fetch("/api/admin/tasks", {
@@ -124,6 +139,9 @@ export default function TasksPage() {
           <p className="muted">Task = 能力名。行业差异请在详情页用站点提示词覆盖。</p>
         </div>
         <div className="header-actions">
+          <button type="button" className="btn-secondary" disabled={seeding} onClick={seedPresets}>
+            {seeding ? "同步中..." : "同步预置能力（服装图析/博客SEO）"}
+          </button>
           <button type="button" className="btn-secondary" onClick={fillExample}>
             填入示例
           </button>
@@ -133,9 +151,15 @@ export default function TasksPage() {
         </div>
       </div>
 
-      <Tip title="配置顺序：建任务 → 全局提示词 → 站点覆盖">
+      <Tip title="配置顺序：建任务 → 全局提示词 → 站点覆盖" defaultOpen>
         <p>
-          服装站与五金站共用同一 <code>task_code</code>（如 product_desc），只在提示词层面做差异。
+          可点「同步预置能力」一键写入：
+          <code>apparel_image_enrich</code>（上传服装/面料图补全英文字段）、
+          <code>blog_topic_recommend</code>（SEO/GEO 选题）、
+          <code>blog_seo_article</code>（英文成稿+站内关联）。
+        </p>
+        <p>
+          不同行业站点共用 task，差异用站点提示词覆盖即可。
         </p>
       </Tip>
 

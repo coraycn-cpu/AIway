@@ -6,7 +6,7 @@ export default function DocsPage() {
       <h1>系统说明</h1>
       <p className="muted">上游固定为 Vercel AI Gateway；原始厂商 Key 不在本系统管理。</p>
 
-      <Tip title="核心模型：Task / Prompt / Site">
+      <Tip title="核心模型：Task / Prompt / Site" defaultOpen>
         <ol>
           <li>
             <b>Task（任务）</b>：能力名与输入字段契约。业务站只认 <code>task_code</code>。
@@ -18,9 +18,22 @@ export default function DocsPage() {
             <b>Site（站点）</b>：谁在调用、花谁的钱。不拥有任务，只调用任务。
           </li>
         </ol>
-        <p>
-          服装站与五金站：优先共用同一 task（如 <code>product_desc</code>），分别做站点提示词覆盖。
-        </p>
+      </Tip>
+
+      <Tip title="预置能力（任务页可一键同步）" defaultOpen>
+        <ol>
+          <li>
+            <code>apparel_image_enrich</code>：上传服装/面料图 → 补全英文商品字段与简述（支持{" "}
+            <code>image_url</code> 视觉分析）。
+          </li>
+          <li>
+            <code>blog_topic_recommend</code>：按网站主题 + 目标人群推荐 SEO/GEO 友好英文选题。
+          </li>
+          <li>
+            <code>blog_seo_article</code>：按选题生成英文成稿，含 FAQ、站内内链、meta。
+          </li>
+        </ol>
+        <p>推荐流程：选题 → 选定 topic → 成稿；服装站可对同一 task 做站点提示词覆盖。</p>
       </Tip>
 
       <ul className="doc-list">
@@ -37,6 +50,7 @@ export default function DocsPage() {
         </li>
         <li>提示词只在后台维护；业务站只传 task + 业务字段。</li>
         <li>解析顺序：站点专属激活提示词 → 全局默认激活提示词。</li>
+        <li>图片字段支持：<code>image_url</code> / <code>image_urls</code>（需选视觉模型）。</li>
         <li>余额/额度不足会直接拒绝，不调上游；成功/失败都会写 usage_logs。</li>
       </ul>
     </div>

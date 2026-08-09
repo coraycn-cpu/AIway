@@ -76,6 +76,7 @@ export async function POST(req: Request) {
         prompt: userPrompt,
         temperature: Number(task.temperature),
         maxTokens: task.max_tokens,
+        input: parsed.data.input,
       });
       outputText = result.text;
       inputTokens = result.inputTokens;

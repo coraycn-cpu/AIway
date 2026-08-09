@@ -41,8 +41,11 @@ npm run db:migrate
 
 1. `supabase/migrations/001_init.sql`
 2. `supabase/migrations/002_task_input_schema.sql`
+3. `supabase/migrations/003_model_catalog_expand.sql`
 
 会创建全部表，并写入管理员、默认模型、示例任务 `ping`。
+
+预置业务能力（服装图析 / 博客 SEO）请在后台 **任务页** 点击「同步预置能力」，或调用 `POST /api/admin/tasks/seed-presets`。
 
 ## 管理后台
 
@@ -70,6 +73,52 @@ npm run db:migrate
   "task": "ping",
   "input": { "message": "hello" },
   "trace_id": "optional"
+}
+```
+
+### 预置能力示例
+
+**1) 服装/面料图片 → 英文商品字段**
+
+```json
+{
+  "task": "apparel_image_enrich",
+  "input": {
+    "image_url": "https://cdn.example.com/dress.jpg",
+    "category_hint": "women knitted dress",
+    "brand_voice": "modern wholesale apparel"
+  }
+}
+```
+
+**2) 博客选题（SEO/GEO）**
+
+```json
+{
+  "task": "blog_topic_recommend",
+  "input": {
+    "site_theme": "sustainable women's knitwear wholesale",
+    "target_audience": "US boutique buyers",
+    "primary_market": "United States",
+    "count": "8"
+  }
+}
+```
+
+**3) 博客英文成稿 + 站内关联**
+
+```json
+{
+  "task": "blog_seo_article",
+  "input": {
+    "site_theme": "sustainable women's knitwear wholesale",
+    "target_audience": "US boutique buyers",
+    "topic_title": "How boutique buyers evaluate knitwear quality",
+    "primary_keyword": "wholesale knitwear quality checklist",
+    "internal_link_map": "Fabric Care|/blog/fabric-care\nMOQ Guide|/guides/moq",
+    "brand_name": "LeapClothes",
+    "word_count": "1200"
+  }
 }
 ```
 
