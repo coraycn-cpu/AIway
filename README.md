@@ -59,7 +59,13 @@ npm run db:migrate
 - `/models` 模型对客户售价（含 DeepSeek / Gemini；可一键同步）
 - `/logs` 全局调用日志
 
-## 业务站 Open API
+## 业务站接入文档
+
+完整对接说明（环境变量、错误码、预置能力、TS 封装、联调清单）：
+
+→ [`docs/BUSINESS-SITE-INTEGRATION.md`](./docs/BUSINESS-SITE-INTEGRATION.md)
+
+## 业务站 Open API（速查）
 
 统一前缀：`/api/v1`  
 鉴权：`Authorization: Bearer <site_token>`
