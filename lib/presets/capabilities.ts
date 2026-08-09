@@ -61,7 +61,7 @@ export const CAPABILITY_PRESETS: CapabilityPreset[] = [
     system_template: `You are a professional apparel/textile merchandising assistant for an English-language fashion or fabric business website.
 Analyze the provided garment or fabric image(s) carefully.
 Rules:
-1) Output MUST be valid JSON only. No markdown fences.
+1) Output MUST be a single raw JSON object only. Do NOT wrap in markdown fences like \`\`\`json. No prose before/after.
 2) All customer-facing text fields MUST be in natural, clear English.
 3) Do not invent certifications, exact lab-tested GSM, or unavailable measurements. If unsure, use null and explain in notes.
 4) Prefer commercially useful, upload-ready field values.

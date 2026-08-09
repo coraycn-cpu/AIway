@@ -10,6 +10,7 @@ import {
   loadTaskAndPrompt,
   renderTemplate,
 } from "@/lib/prompts";
+import { parseModelJson } from "@/lib/api/parseModelJson";
 
 export const dynamic = "force-dynamic";
 
@@ -139,9 +140,15 @@ export async function POST(req: Request) {
       SELECT balance::text FROM accounts WHERE id = ${auth.account.id}
     `;
 
+    // Models often wrap JSON in ```json fences; normalize for business sites.
+    const parsed = parseModelJson(outputText);
+    const normalizedText = parsed.ok ? parsed.jsonText : outputText;
+
     return jsonOk({
       request_id: requestId,
-      output_text: outputText,
+      output_text: normalizedText,
+      output_json: parsed.ok ? parsed.value : null,
+      output_format: parsed.ok ? "json" : "text",
       prompt_scope: scope,
       usage: {
         input_tokens: inputTokens,

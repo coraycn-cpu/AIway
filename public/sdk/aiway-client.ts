@@ -19,6 +19,9 @@ export type RunInput = {
 export type RunResult = {
   request_id: string;
   output_text: string;
+  /** Parsed JSON when gateway could normalize model output */
+  output_json?: unknown | null;
+  output_format?: "json" | "text";
   prompt_scope?: "global" | "site";
   usage: {
     input_tokens: number;
@@ -29,6 +32,58 @@ export type RunResult = {
   };
   balance: number;
 };
+
+/** Strip ```json fences / surrounding prose and parse JSON flexibly. */
+export function extractJsonText(raw: string): string | null {
+  if (!raw) return null;
+  const text = raw.trim();
+  if (!text) return null;
+
+  if (
+    (text.startsWith("{") && text.endsWith("}")) ||
+    (text.startsWith("[") && text.endsWith("]"))
+  ) {
+    try {
+      JSON.parse(text);
+      return text;
+    } catch {
+      // continue
+    }
+  }
+
+  const fenced = text.match(/```(?:json|JSON)?\s*([\s\S]*?)```/);
+  if (fenced?.[1]) {
+    const inner = fenced[1].trim();
+    try {
+      JSON.parse(inner);
+      return inner;
+    } catch {
+      // continue
+    }
+  }
+
+  const objStart = text.indexOf("{");
+  const arrStart = text.indexOf("[");
+  let start = -1;
+  let end = -1;
+  if (objStart >= 0 && (arrStart < 0 || objStart < arrStart)) {
+    start = objStart;
+    end = text.lastIndexOf("}");
+  } else if (arrStart >= 0) {
+    start = arrStart;
+    end = text.lastIndexOf("]");
+  }
+  if (start >= 0 && end > start) {
+    const slice = text.slice(start, end + 1);
+    try {
+      JSON.parse(slice);
+      return slice;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 export type AccountResult = {
   site_code: string;
@@ -90,7 +145,7 @@ export async function runTask(payload: RunInput): Promise<RunResult> {
   });
 }
 
-/** For preset tasks that return JSON in output_text. */
+/** For preset tasks that return JSON in output_text (handles ```json fences). */
 export async function runTaskJson<T = unknown>(payload: RunInput): Promise<{
   data: T;
   request_id: string;
@@ -99,16 +154,26 @@ export async function runTaskJson<T = unknown>(payload: RunInput): Promise<{
   prompt_scope?: string;
 }> {
   const raw = await runTask(payload);
-  let parsed: T;
-  try {
-    parsed = JSON.parse(raw.output_text) as T;
-  } catch {
+
+  if (raw.output_json != null && raw.output_format === "json") {
+    return {
+      data: raw.output_json as T,
+      request_id: raw.request_id,
+      usage: raw.usage,
+      balance: raw.balance,
+      prompt_scope: raw.prompt_scope,
+    };
+  }
+
+  const jsonText = extractJsonText(raw.output_text);
+  if (!jsonText) {
     throw new Error(
       `output_text is not JSON (request_id=${raw.request_id}): ${String(raw.output_text).slice(0, 200)}`,
     );
   }
+
   return {
-    data: parsed,
+    data: JSON.parse(jsonText) as T,
     request_id: raw.request_id,
     usage: raw.usage,
     balance: raw.balance,

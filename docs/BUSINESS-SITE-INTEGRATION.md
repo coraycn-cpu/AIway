@@ -119,10 +119,14 @@ Content-Type: application/json
 
 | 字段 | 说明 |
 |------|------|
-| `output_text` | 模型输出正文。预置能力多为 **JSON 字符串**，请 `JSON.parse` |
+| `output_text` | 模型输出正文。若可识别为 JSON，网关会去掉 \`\`\`json 围栏并归一化为纯 JSON 字符串 |
+| `output_json` | 已解析对象（推荐优先使用）；解析失败则为 `null` |
+| `output_format` | `json` 或 `text` |
 | `prompt_scope` | `global` 或 `site`（命中全局提示词还是站点覆盖） |
 | `usage.cost` | 本次扣费 |
 | `balance` | 扣费后余额 |
+
+业务站推荐读取顺序：`output_json` → 再兜底解析 `output_text`（SDK `runTaskJson` 已兼容 markdown 代码块）。
 
 ### 图片字段约定
 
