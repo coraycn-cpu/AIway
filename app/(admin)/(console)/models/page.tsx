@@ -1,10 +1,9 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Tip } from "../../tip";
 import { Field, Panel } from "../../ui";
 import {
-  EmptyTableRow,
   ListTableShell,
   ListToolbar,
   Pagination,
@@ -22,6 +21,13 @@ type Model = {
   enabled: boolean;
 };
 
+const emptyForm = {
+  model_id: "",
+  display_name: "",
+  input_price_per_1m: "0.3",
+  output_price_per_1m: "2.5",
+};
+
 function providerOf(modelId: string) {
   const p = modelId.split("/")[0] || "other";
   if (p === "google") return "Gemini / Google";
@@ -32,24 +38,27 @@ function providerOf(modelId: string) {
 }
 
 export default function ModelsPage() {
-  const [form, setForm] = useState({
-    model_id: "",
-    display_name: "",
-    input_price_per_1m: "0.3",
-    output_price_per_1m: "2.5",
-  });
+  const [form, setForm] = useState(emptyForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [q, setQ] = useState("");
   const [provider, setProvider] = useState("");
   const [enabled, setEnabled] = useState("");
   const debouncedQ = useDebouncedValue(q, 300);
+  const formRef = useRef<HTMLFormElement | null>(null);
 
-  const list = usePagedList<Model>("/api/admin/models", {
-    q: debouncedQ,
-    provider,
-    enabled,
-  }, { defaultPageSize: 50 });
+  const list = usePagedList<Model>(
+    "/api/admin/models",
+    {
+      q: debouncedQ,
+      provider,
+      enabled,
+    },
+    { defaultPageSize: 50 },
+  );
 
   const grouped = useMemo(() => {
     const map = new Map<string, Model[]>();
@@ -61,7 +70,20 @@ export default function ModelsPage() {
     return [...map.entries()];
   }, [list.items]);
 
+  useEffect(() => {
+    if (!editingId) return;
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editingId]);
+
+  function resetForm() {
+    setEditingId(null);
+    setForm(emptyForm);
+    setError("");
+  }
+
   function fillExample(kind: "deepseek" | "gemini") {
+    setEditingId(null);
+    setError("");
     if (kind === "deepseek") {
       setForm({
         model_id: "deepseek/deepseek-v4-flash",
@@ -79,41 +101,88 @@ export default function ModelsPage() {
     }
   }
 
-  async function onCreate(e: FormEvent) {
-    e.preventDefault();
-    const res = await fetch("/api/admin/models", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...form,
-        input_price_per_1m: Number(form.input_price_per_1m),
-        output_price_per_1m: Number(form.output_price_per_1m),
-      }),
+  function startEdit(m: Model) {
+    setEditingId(m.id);
+    setMsg("");
+    setError("");
+    setForm({
+      model_id: m.model_id,
+      display_name: m.display_name,
+      input_price_per_1m: String(m.input_price_per_1m ?? ""),
+      output_price_per_1m: String(m.output_price_per_1m ?? ""),
     });
-    const data = await res.json();
-    if (!res.ok) {
-      setMsg(data?.error?.message || "保存失败");
+  }
+
+  async function onSave(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setMsg("");
+    setError("");
+
+    const inputPrice = Number(form.input_price_per_1m);
+    const outputPrice = Number(form.output_price_per_1m);
+    if (!Number.isFinite(inputPrice) || inputPrice < 0 || !Number.isFinite(outputPrice) || outputPrice < 0) {
+      setSaving(false);
+      setError("价格须为非负数字");
       return;
     }
-    invalidateAdminOptions(["models"]);
-    setMsg("模型已保存（对客户售价）");
-    setForm({
-      model_id: "",
-      display_name: "",
-      input_price_per_1m: "0.3",
-      output_price_per_1m: "2.5",
-    });
-    list.reload();
+
+    try {
+      if (editingId) {
+        const res = await fetch("/api/admin/models", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: editingId,
+            display_name: form.display_name,
+            input_price_per_1m: inputPrice,
+            output_price_per_1m: outputPrice,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data?.error?.message || "更新失败");
+          return;
+        }
+        invalidateAdminOptions(["models"]);
+        setMsg(`已更新售价：${form.model_id}`);
+        resetForm();
+        list.reload();
+      } else {
+        const res = await fetch("/api/admin/models", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model_id: form.model_id,
+            display_name: form.display_name,
+            input_price_per_1m: inputPrice,
+            output_price_per_1m: outputPrice,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data?.error?.message || "保存失败");
+          return;
+        }
+        invalidateAdminOptions(["models"]);
+        setMsg("模型已保存（对客户售价）");
+        resetForm();
+        list.reload();
+      }
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function seedDefaults() {
     setSeeding(true);
     setMsg("");
+    setError("");
     const res = await fetch("/api/admin/models/seed", { method: "POST" });
     const data = await res.json();
     setSeeding(false);
     if (!res.ok) {
-      setMsg(data?.error?.message || "同步失败");
+      setError(data?.error?.message || "同步失败");
       return;
     }
     setMsg(data.tip || `已同步 ${data.upserted} 个模型`);
@@ -151,25 +220,46 @@ export default function ModelsPage() {
           本页只维护对客户售价与是否启用。实际调用走 AI Gateway；请确保 Gateway
           已开通对应模型权限。
         </p>
+        <p>
+          改价：在列表点「编辑」，改输入/输出价后保存。新调用按新价计费，历史流水不变。
+        </p>
       </Tip>
 
-      <Panel title="新增 / 更新模型" subtitle="已存在的 model_id 会更新名称与售价">
-        <form className="form-grid" onSubmit={onCreate}>
-          <div className="form-actions">
-            <button type="button" className="btn-secondary" onClick={() => fillExample("deepseek")}>
-              填入 DeepSeek 示例
-            </button>
-            <button type="button" className="btn-secondary" onClick={() => fillExample("gemini")}>
-              填入 Gemini 示例
-            </button>
-          </div>
+      <Panel
+        title={editingId ? "编辑模型售价" : "新增 / 更新模型"}
+        subtitle={
+          editingId
+            ? `正在编辑：${form.model_id}（model_id 不可改；要换 ID 请新增）`
+            : "已存在的 model_id 会更新名称与售价；也可从列表点「编辑」"
+        }
+      >
+        <form className="form-grid" onSubmit={onSave} ref={formRef}>
+          {!editingId ? (
+            <div className="form-actions">
+              <button type="button" className="btn-secondary" onClick={() => fillExample("deepseek")}>
+                填入 DeepSeek 示例
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => fillExample("gemini")}>
+                填入 Gemini 示例
+              </button>
+            </div>
+          ) : null}
           <div className="form-row-2">
-            <Field label="model_id" hint="示例：deepseek/deepseek-v4-flash 或 google/gemini-2.5-flash">
+            <Field
+              label="model_id"
+              hint={
+                editingId
+                  ? "编辑时锁定，避免误改计费标识"
+                  : "示例：deepseek/deepseek-v4-flash 或 google/gemini-2.5-flash"
+              }
+            >
               <input
                 value={form.model_id}
                 onChange={(e) => setForm({ ...form, model_id: e.target.value })}
                 placeholder="google/gemini-2.5-flash"
                 required
+                disabled={Boolean(editingId)}
+                className={editingId ? "mono" : undefined}
               />
             </Field>
             <Field label="显示名" hint="示例：Gemini 2.5 Flash">
@@ -186,24 +276,36 @@ export default function ModelsPage() {
               <input
                 type="number"
                 step="0.001"
+                min="0"
                 value={form.input_price_per_1m}
                 onChange={(e) => setForm({ ...form, input_price_per_1m: e.target.value })}
+                required
               />
             </Field>
             <Field label="输出价 / 1M tokens" hint="对客户售价（USD）">
               <input
                 type="number"
                 step="0.001"
+                min="0"
                 value={form.output_price_per_1m}
                 onChange={(e) => setForm({ ...form, output_price_per_1m: e.target.value })}
+                required
               />
             </Field>
           </div>
           <div className="form-actions">
-            <button type="submit">保存模型</button>
+            <button type="submit" disabled={saving}>
+              {saving ? "保存中…" : editingId ? "保存改价" : "保存模型"}
+            </button>
+            {editingId ? (
+              <button type="button" className="btn-secondary" onClick={resetForm} disabled={saving}>
+                取消编辑
+              </button>
+            ) : null}
           </div>
         </form>
         {msg ? <p className="ok">{msg}</p> : null}
+        {error ? <p className="error">{error}</p> : null}
       </Panel>
 
       <Panel title="模型目录">
@@ -245,25 +347,37 @@ export default function ModelsPage() {
                         <th>输入价/1M</th>
                         <th>输出价/1M</th>
                         <th>启用</th>
-                        <th />
+                        <th>操作</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((m) => (
-                        <tr key={m.id}>
+                        <tr
+                          key={m.id}
+                          className={editingId === m.id ? "row-selected" : undefined}
+                        >
                           <td className="mono">{m.model_id}</td>
                           <td>{m.display_name}</td>
                           <td>{m.input_price_per_1m}</td>
                           <td>{m.output_price_per_1m}</td>
                           <td>{m.enabled ? "是" : "否"}</td>
                           <td>
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              onClick={() => toggle(m.id, m.enabled)}
-                            >
-                              {m.enabled ? "停用" : "启用"}
-                            </button>
+                            <div className="inline-form">
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => startEdit(m)}
+                              >
+                                编辑
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => toggle(m.id, m.enabled)}
+                              >
+                                {m.enabled ? "停用" : "启用"}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
