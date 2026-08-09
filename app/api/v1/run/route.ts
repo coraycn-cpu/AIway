@@ -141,14 +141,14 @@ export async function POST(req: Request) {
     `;
 
     // Models often wrap JSON in ```json fences; normalize for business sites.
-    const parsed = parseModelJson(outputText);
-    const normalizedText = parsed.ok ? parsed.jsonText : outputText;
+    const jsonParsed = parseModelJson(outputText);
+    const normalizedText = jsonParsed.ok ? jsonParsed.jsonText : outputText;
 
     return jsonOk({
       request_id: requestId,
       output_text: normalizedText,
-      output_json: parsed.ok ? parsed.value : null,
-      output_format: parsed.ok ? "json" : "text",
+      output_json: jsonParsed.ok ? jsonParsed.value : null,
+      output_format: jsonParsed.ok ? "json" : "text",
       prompt_scope: scope,
       usage: {
         input_tokens: inputTokens,
