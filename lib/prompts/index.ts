@@ -32,8 +32,14 @@ export async function loadTaskAndPrompt(taskCode: string, siteId: string) {
     SELECT * FROM tasks WHERE task_code = ${taskCode} LIMIT 1
   `;
   const task = tasks[0];
-  if (!task || task.status !== "active") {
-    throw new PromptError("Task not found or disabled", 404);
+  if (!task) {
+    throw new PromptError(
+      `Task not found: ${taskCode}. 若为预置能力，请管理员在 AIway 后台「任务」页点击「同步预置能力」。`,
+      404,
+    );
+  }
+  if (task.status !== "active") {
+    throw new PromptError(`Task disabled: ${taskCode}`, 404);
   }
 
   const schema = parseInputSchema(task.input_schema);

@@ -57,12 +57,20 @@ export default function TasksPage() {
   }
 
   async function load() {
-    const [t, m] = await Promise.all([
+    const [t, m, p] = await Promise.all([
       fetch("/api/admin/tasks").then((r) => r.json()),
       fetch("/api/admin/models").then((r) => r.json()),
+      fetch("/api/admin/tasks/seed-presets").then((r) => r.json()),
     ]);
     setItems(t.items || []);
     setModels(m.items || []);
+    if (p && typeof p.ready === "boolean") {
+      setPresetStatus({
+        ready: p.ready,
+        missing: p.missing || [],
+        tip: p.tip || "",
+      });
+    }
     if (m.items?.[0]) {
       setForm((f) => {
         const exists = m.items.some((x: Model) => x.model_id === f.default_model_id);
@@ -156,17 +164,27 @@ export default function TasksPage() {
         </div>
       </div>
 
-      <Tip title="配置顺序：建任务 → 全局提示词 → 站点覆盖" defaultOpen>
-        <p>
-          可点「同步预置能力」一键写入：
-          <code>apparel_image_enrich</code>（上传服装/面料图补全英文字段）、
-          <code>blog_topic_recommend</code>（SEO/GEO 选题）、
-          <code>blog_seo_article</code>（英文成稿+站内关联）。
-        </p>
-        <p>
-          不同行业站点共用 task，差异用站点提示词覆盖即可。
-        </p>
-      </Tip>
+      {presetStatus && !presetStatus.ready ? (
+        <Tip title="leapclothes 报 Task not found 就是这里" tone="warn" defaultOpen>
+          <p>
+            预置任务尚未写入数据库（缺失：{" "}
+            <code>{(presetStatus.missing || []).join(", ") || "未知"}</code>）。
+            ping 能通不代表业务能力已开通。
+          </p>
+          <p>
+            请立即点击右上角 <b>「同步预置能力」</b>，成功后再回业务站重试「AI 识图建档」。
+          </p>
+        </Tip>
+      ) : (
+        <Tip title="配置顺序：建任务 → 全局提示词 → 站点覆盖">
+          <p>
+            预置能力：
+            <code>apparel_image_enrich</code> /
+            <code>blog_topic_recommend</code> /
+            <code>blog_seo_article</code>
+          </p>
+        </Tip>
+      )}
 
       {showCreate ? (
         <Panel
