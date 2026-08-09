@@ -4,6 +4,15 @@
 > 目标：约 30 分钟完成 Token 联调  
 > 原则：业务站**不持有**上游模型 Key；只持有调度系统 Token
 
+### 给另一个 Cursor 项目直接用
+
+公网可拉取（部署后）：
+
+- 本文档 Markdown：`/api/docs/business-integration`
+- 客户端 SDK：`/sdk/aiway-client.ts`
+- 说明页：`/integration`
+- 交接提示词：见 `docs/CURSOR-HANDOFF.md`
+
 ---
 
 ## 1. 你需要什么

@@ -65,6 +65,13 @@ npm run db:migrate
 
 → [`docs/BUSINESS-SITE-INTEGRATION.md`](./docs/BUSINESS-SITE-INTEGRATION.md)
 
+给**另一个 Cursor 业务站项目**直接拉取：
+
+→ [`docs/CURSOR-HANDOFF.md`](./docs/CURSOR-HANDOFF.md)  
+→ 线上说明页：`/integration`  
+→ 原始文档 API：`/api/docs/business-integration`  
+→ SDK：`/sdk/aiway-client.ts`
+
 ## 业务站 Open API（速查）
 
 统一前缀：`/api/v1`  
