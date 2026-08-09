@@ -28,7 +28,7 @@
 业务站**不需要**：
 
 - OpenAI / Gemini / DeepSeek 等厂商 Key  
-- 提示词原文（提示词只在调度后台维护）  
+- 提示词原文（Task 模式下提示词只在调度后台维护；Raw 模式可自带）  
 - 管理后台账号密码
 
 ---
@@ -81,7 +81,16 @@ Content-Type: application/json
 
 ## 5. `POST /run` — 调 AI
 
-### 请求
+支持 **Task** 与 **Raw** 双模式（由 AIway 后台全局开关 + 站点 `raw_enabled` 控制）。
+
+| 模式 | 何时用 | 业务站传什么 | 开关 |
+|------|--------|--------------|------|
+| Task（默认） | 提示词由 AIway 统一管理 | `{ task, input }` | 全局 `task_mode_enabled` |
+| Raw | 业务站自带模型与提示词，仍走鉴权扣费 | `{ mode:"raw", model_id, system?, prompt, ... }` | 全局 `raw_mode_enabled` **且** 站点 `raw_enabled` |
+
+`GET /account` 会返回 `modes.can_use_task` / `modes.can_use_raw`，便于业务站探测。
+
+### 5.1 Task 模式（默认）
 
 ```json
 {
@@ -98,13 +107,49 @@ Content-Type: application/json
 | `task` | string | 是 | 任务能力码，由调度后台配置 |
 | `input` | object | 是 | 业务字段；键名需符合该任务字段契约 |
 | `trace_id` | string | 否 | 业务侧追踪 ID |
+| `mode` | `"task"` | 否 | 可省略；默认即 task |
+
+### 5.2 Raw 模式
+
+需管理员先打开：后台「运行模式」→ 全局 Raw，再在「站点」对该站点「开 Raw」。
+
+```json
+{
+  "mode": "raw",
+  "model_id": "google/gemini-2.5-flash",
+  "system": "You are a helpful assistant. Reply in JSON.",
+  "prompt": "Summarize this product...",
+  "temperature": 0.7,
+  "max_tokens": 2048,
+  "image_urls": ["https://cdn.example.com/a.jpg"],
+  "trace_id": "optional-biz-id"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `mode` | `"raw"` | 是 | 固定为 raw |
+| `model_id` | string | 是 | 须在 AIway 模型目录中且已启用 |
+| `prompt` | string | 是 | 用户提示词 |
+| `system` | string | 否 | 系统提示词 |
+| `temperature` | number | 否 | 0–2 |
+| `max_tokens` | number | 否 | 上限 16000 |
+| `image_urls` | string[] | 否 | 公网图片 URL（最多 6） |
+| `trace_id` | string | 否 | 业务追踪 ID |
+
+SDK：`runRaw` / `runRawJson`。用量日志 `task_code` 记为 `raw`。
+
+未开开关时返回 `403`：`Raw mode is disabled...`。
 
 ### 成功响应（示例）
 
 ```json
 {
   "request_id": "uuid",
+  "mode": "task",
   "output_text": "{ ... JSON 或纯文本 ... }",
+  "output_json": {},
+  "output_format": "json",
   "prompt_scope": "global",
   "usage": {
     "input_tokens": 1234,
@@ -119,14 +164,15 @@ Content-Type: application/json
 
 | 字段 | 说明 |
 |------|------|
+| `mode` | `task` 或 `raw` |
 | `output_text` | 模型输出正文。若可识别为 JSON，网关会去掉 \`\`\`json 围栏并归一化为纯 JSON 字符串 |
 | `output_json` | 已解析对象（推荐优先使用）；解析失败则为 `null` |
 | `output_format` | `json` 或 `text` |
-| `prompt_scope` | `global` 或 `site`（命中全局提示词还是站点覆盖） |
+| `prompt_scope` | Task：`global` / `site`；Raw：固定 `raw` |
 | `usage.cost` | 本次扣费 |
 | `balance` | 扣费后余额 |
 
-业务站推荐读取顺序：`output_json` → 再兜底解析 `output_text`（SDK `runTaskJson` 已兼容 markdown 代码块）。
+业务站推荐读取顺序：`output_json` → 再兜底解析 `output_text`（SDK `runTaskJson` / `runRawJson` 已兼容 markdown 代码块）。
 
 ### 图片字段约定
 
@@ -314,11 +360,18 @@ Authorization: Bearer sk_xxx
   "balance": 12.5,
   "month_quota": null,
   "month_used": 1.2,
-  "month_remaining": null
+  "month_remaining": null,
+  "modes": {
+    "task_mode_enabled": true,
+    "raw_mode_enabled": true,
+    "site_raw_enabled": true,
+    "can_use_task": true,
+    "can_use_raw": true
+  }
 }
 ```
 
-建议：在调用高成本任务前先检查 `balance`；`status` 非 `active` 时不要继续调用。
+建议：在调用高成本任务前先检查 `balance`；`status` 非 `active` 时不要继续调用。用 Raw 前先确认 `modes.can_use_raw === true`。
 
 ---
 
@@ -419,6 +472,7 @@ export async function runTask(payload: RunInput) {
   return aiwayFetch("/run", {
     method: "POST",
     body: JSON.stringify({
+      mode: "task",
       task: payload.task,
       input: payload.input ?? {},
       trace_id: payload.trace_id,
@@ -426,7 +480,23 @@ export async function runTask(payload: RunInput) {
   });
 }
 
-/** 预置能力返回多为 JSON 字符串 */
+/** Raw：业务站自带提示词（需管理员开全局 Raw + 站点 raw_enabled） */
+export async function runRaw(payload: {
+  model_id: string;
+  system?: string;
+  prompt: string;
+  temperature?: number;
+  max_tokens?: number;
+  image_urls?: string[];
+  trace_id?: string;
+}) {
+  return aiwayFetch("/run", {
+    method: "POST",
+    body: JSON.stringify({ mode: "raw", ...payload }),
+  });
+}
+
+/** 预置能力返回多为 JSON；完整实现见 /sdk/aiway-client.ts（含围栏剥离） */
 export async function runTaskJson<T = unknown>(payload: RunInput): Promise<{
   data: T;
   request_id: string;
@@ -484,10 +554,11 @@ export async function POST(req: Request) {
 1. [ ] 服务端已配置 `AI_SCHEDULER_URL`、`AI_SCHEDULER_TOKEN`  
 2. [ ] `GET /account` 返回本站 `balance` 且 `status=active`  
 3. [ ] `POST /run` + `task=ping` 成功  
-4. [ ] 真实能力（图析或博客）跑通，并能 `JSON.parse(output_text)`  
-5. [ ] `GET /usage` 能看到刚才的 `request_id`  
-6. [ ] 前端网络面板中**看不到** Token  
-7. [ ] 余额为 0 时收到 `402` 并有产品侧提示  
+4. [ ] 真实能力（图析或博客）跑通，并能用 `output_json` / `runTaskJson`  
+5. [ ] （可选）管理员开 Raw 后，`modes.can_use_raw` 为 true，`runRaw` 成功  
+6. [ ] `GET /usage` 能看到刚才的 `request_id`  
+7. [ ] 前端网络面板中**看不到** Token  
+8. [ ] 余额为 0 时收到 `402` 并有产品侧提示  
 
 ---
 

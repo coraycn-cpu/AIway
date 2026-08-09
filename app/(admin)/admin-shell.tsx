@@ -11,6 +11,7 @@ const links = [
   { href: "/tasks", label: "任务" },
   { href: "/prompts", label: "提示词" },
   { href: "/models", label: "模型目录" },
+  { href: "/settings", label: "运行模式" },
   { href: "/logs", label: "调用日志" },
   { href: "/docs", label: "系统说明" },
 ];

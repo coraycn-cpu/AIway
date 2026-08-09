@@ -10,6 +10,7 @@ type SiteRow = {
   code: string;
   name: string;
   status: string;
+  raw_enabled?: boolean;
   account_id: string;
   balance: string;
   month_quota: string | null;
@@ -90,6 +91,15 @@ export default function SitesPage() {
     load();
   }
 
+  async function toggleRaw(id: string, rawEnabled: boolean) {
+    await fetch("/api/admin/sites", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, raw_enabled: !rawEnabled }),
+    });
+    load();
+  }
+
   return (
     <div className="page">
       <div className="page-header">
@@ -112,6 +122,9 @@ export default function SitesPage() {
       <Tip title="站点不拥有任务，站点调用任务">
         <p>
           服装/五金若文案不同，共用同一 task，在任务详情做站点提示词覆盖即可。
+        </p>
+        <p>
+          若业务站要自带提示词（Raw），先到「运行模式」开全局 Raw，再在本页打开该站 Raw。
         </p>
       </Tip>
 
@@ -150,6 +163,7 @@ export default function SitesPage() {
                 <th>Code</th>
                 <th>名称</th>
                 <th>状态</th>
+                <th>Raw</th>
                 <th>余额</th>
                 <th>月额度</th>
                 <th>操作</th>
@@ -161,12 +175,20 @@ export default function SitesPage() {
                   <td className="mono">{s.code}</td>
                   <td>{s.name}</td>
                   <td>{s.status}</td>
+                  <td>{s.raw_enabled ? <span className="ok">开</span> : <span className="muted">关</span>}</td>
                   <td>{Number(s.balance || 0).toFixed(4)}</td>
                   <td>{s.month_quota ?? "-"}</td>
                   <td>
                     <div className="inline-form">
                       <button type="button" className="btn-secondary" onClick={() => setSelectedId(s.id)}>
                         查看命中
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => toggleRaw(s.id, Boolean(s.raw_enabled))}
+                      >
+                        {s.raw_enabled ? "关 Raw" : "开 Raw"}
                       </button>
                       <button type="button" onClick={() => toggle(s.id, s.status)}>
                         {s.status === "active" ? "停用" : "启用"}

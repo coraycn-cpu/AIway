@@ -437,6 +437,20 @@ button.chip {
   margin-top: 4px;
 }
 
+.toggle-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.toggle-row input[type="checkbox"] {
+  width: auto;
+  margin-top: 4px;
+  flex: 0 0 auto;
+}
+
 .btn-secondary,
 button.btn-secondary {
   background: #eef3f1 !important;

@@ -16,13 +16,26 @@ export type RunInput = {
   trace_id?: string;
 };
 
+export type RawRunInput = {
+  model_id: string;
+  system?: string;
+  prompt: string;
+  temperature?: number;
+  max_tokens?: number;
+  image_urls?: string[];
+  /** Optional extra fields (e.g. image_url) passed through for multimodal helpers */
+  input?: Record<string, unknown>;
+  trace_id?: string;
+};
+
 export type RunResult = {
   request_id: string;
+  mode?: "task" | "raw";
   output_text: string;
   /** Parsed JSON when gateway could normalize model output */
   output_json?: unknown | null;
   output_format?: "json" | "text";
-  prompt_scope?: "global" | "site";
+  prompt_scope?: "global" | "site" | "raw";
   usage: {
     input_tokens: number;
     output_tokens: number;
@@ -93,6 +106,13 @@ export type AccountResult = {
   month_quota: number | null;
   month_used: number;
   month_remaining: number | null;
+  modes?: {
+    task_mode_enabled: boolean;
+    raw_mode_enabled: boolean;
+    site_raw_enabled: boolean;
+    can_use_task: boolean;
+    can_use_raw: boolean;
+  };
 };
 
 export class AiwayError extends Error {
@@ -138,11 +158,66 @@ export async function runTask(payload: RunInput): Promise<RunResult> {
   return aiwayFetch("/run", {
     method: "POST",
     body: JSON.stringify({
+      mode: "task",
       task: payload.task,
       input: payload.input ?? {},
       trace_id: payload.trace_id,
     }),
   });
+}
+
+/**
+ * Raw mode: business site owns model + prompts; AIway still authenticates and bills.
+ * Requires admin: global raw_mode_enabled + site.raw_enabled.
+ */
+export async function runRaw(payload: RawRunInput): Promise<RunResult> {
+  return aiwayFetch("/run", {
+    method: "POST",
+    body: JSON.stringify({
+      mode: "raw",
+      model_id: payload.model_id,
+      system: payload.system ?? "",
+      prompt: payload.prompt,
+      temperature: payload.temperature,
+      max_tokens: payload.max_tokens,
+      image_urls: payload.image_urls,
+      input: payload.input,
+      trace_id: payload.trace_id,
+    }),
+  });
+}
+
+/** Prefer output_json; otherwise parse output_text (handles ```json fences). */
+export async function runRawJson<T = unknown>(payload: RawRunInput): Promise<{
+  data: T;
+  request_id: string;
+  usage: RunResult["usage"];
+  balance: number;
+}> {
+  const raw = await runRaw(payload);
+
+  if (raw.output_json != null && raw.output_format === "json") {
+    return {
+      data: raw.output_json as T,
+      request_id: raw.request_id,
+      usage: raw.usage,
+      balance: raw.balance,
+    };
+  }
+
+  const jsonText = extractJsonText(raw.output_text);
+  if (!jsonText) {
+    throw new Error(
+      `output_text is not JSON (request_id=${raw.request_id}): ${String(raw.output_text).slice(0, 200)}`,
+    );
+  }
+
+  return {
+    data: JSON.parse(jsonText) as T,
+    request_id: raw.request_id,
+    usage: raw.usage,
+    balance: raw.balance,
+  };
 }
 
 /** For preset tasks that return JSON in output_text (handles ```json fences). */

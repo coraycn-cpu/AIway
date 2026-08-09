@@ -18,6 +18,7 @@ export type Site = {
   code: string;
   name: string;
   status: SiteStatus;
+  raw_enabled?: boolean;
   created_at: Date;
   updated_at: Date;
 };

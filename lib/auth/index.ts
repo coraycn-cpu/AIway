@@ -4,6 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { getSql } from "@/lib/db";
 import type { Account, AdminUser, ApiToken, Site } from "@/lib/db/schema";
+import { ensureSettingsSchema } from "@/lib/settings";
 
 const SESSION_COOKIE = "aiway_admin_session";
 const SESSION_TTL = "7d";
@@ -100,6 +101,7 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
   const token = authHeader.slice("Bearer ".length).trim();
   if (!token) throw new AuthError("Missing token", 401);
 
+  await ensureSettingsSchema();
   const sql = getSql();
   const hash = hashApiToken(token);
   const rows = await sql<
@@ -114,6 +116,7 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
       site_code: string;
       site_name: string;
       site_status: Site["status"];
+      site_raw_enabled: boolean;
       site_created_at: Date;
       site_updated_at: Date;
       account_id: string;
@@ -135,6 +138,7 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
       s.code AS site_code,
       s.name AS site_name,
       s.status AS site_status,
+      COALESCE(s.raw_enabled, FALSE) AS site_raw_enabled,
       s.created_at AS site_created_at,
       s.updated_at AS site_updated_at,
       a.id AS account_id,
@@ -166,6 +170,7 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
       code: row.site_code,
       name: row.site_name,
       status: row.site_status,
+      raw_enabled: Boolean(row.site_raw_enabled),
       created_at: row.site_created_at,
       updated_at: row.site_updated_at,
     },

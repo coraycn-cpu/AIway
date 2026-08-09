@@ -23,6 +23,9 @@ AI_SCHEDULER_URL=https://ai-way-git-cursor-v1-ai-scheduler-e1cf-coraycn-6000s-pr
 AI_SCHEDULER_TOKEN=<管理员发放的 sk_xxx>
 
 先做 ping 探活，再接 apparel_image_enrich / blog_topic_recommend / blog_seo_article。
+
+双模式：默认 Task（task+input）。若管理员已开 Raw，可用 runRaw({ model_id, system, prompt }) 自带提示词，仍由 AIway 扣费。
+先 GET /account 看 modes.can_use_raw。
 ```
 
 Cursor Agent 可用 WebFetch 拉取上述 Markdown/SDK 后直接改业务站代码。

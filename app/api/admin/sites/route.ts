@@ -14,6 +14,8 @@ const createSchema = z.object({
 export async function GET() {
   try {
     await requireAdmin();
+    const { ensureSettingsSchema } = await import("@/lib/settings");
+    await ensureSettingsSchema();
     const sql = getSql();
     const rows = await sql`
       SELECT s.*, a.id AS account_id, a.balance::text AS balance, a.month_quota::text AS month_quota, a.status AS account_status
@@ -63,16 +65,23 @@ export async function PATCH(req: Request) {
         id: z.string().uuid(),
         status: z.enum(["active", "disabled"]).optional(),
         name: z.string().min(1).optional(),
+        raw_enabled: z.boolean().optional(),
       })
       .safeParse(await req.json().catch(() => null));
     if (!body.success) return jsonError(400, "400", "Invalid patch payload");
 
+    const { ensureSettingsSchema } = await import("@/lib/settings");
+    await ensureSettingsSchema();
     const sql = getSql();
     await sql`
       UPDATE sites
       SET
         status = COALESCE(${body.data.status ?? null}, status),
         name = COALESCE(${body.data.name ?? null}, name),
+        raw_enabled = CASE
+          WHEN ${body.data.raw_enabled !== undefined} THEN ${body.data.raw_enabled ?? false}
+          ELSE raw_enabled
+        END,
         updated_at = NOW()
       WHERE id = ${body.data.id}
     `;
