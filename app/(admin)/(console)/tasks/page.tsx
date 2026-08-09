@@ -38,6 +38,11 @@ export default function TasksPage() {
   });
   const [msg, setMsg] = useState("");
   const [seeding, setSeeding] = useState(false);
+  const [presetStatus, setPresetStatus] = useState<{
+    ready: boolean;
+    missing: string[];
+    tip: string;
+  } | null>(null);
 
   function parseFields(text: string): FieldSchema[] {
     return text

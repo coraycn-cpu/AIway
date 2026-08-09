@@ -5,9 +5,48 @@ import { CAPABILITY_PRESETS } from "@/lib/presets/capabilities";
 
 export const dynamic = "force-dynamic";
 
+async function ensureTaskColumns() {
+  const sql = getSql();
+  await sql.unsafe(`
+    ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS description TEXT,
+      ADD COLUMN IF NOT EXISTS input_schema JSONB NOT NULL DEFAULT '[]'::jsonb;
+  `);
+}
+
+export async function GET() {
+  try {
+    await requireAdmin();
+    await ensureTaskColumns();
+    const sql = getSql();
+    const codes = CAPABILITY_PRESETS.map((p) => p.task_code);
+    const rows = await sql<{ task_code: string; status: string }[]>`
+      SELECT task_code, status FROM tasks WHERE task_code = ANY(${codes})
+    `;
+    const present = new Set(rows.map((r) => r.task_code));
+    const missing = codes.filter((c) => !present.has(c));
+    const disabled = rows.filter((r) => r.status !== "active").map((r) => r.task_code);
+
+    return jsonOk({
+      expected: codes,
+      present: [...present],
+      missing,
+      disabled,
+      ready: missing.length === 0 && disabled.length === 0,
+      tip:
+        missing.length || disabled.length
+          ? "预置能力未齐，请点击「同步预置能力」。"
+          : "预置能力已就绪。",
+    });
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
 export async function POST() {
   try {
     await requireAdmin();
+    await ensureTaskColumns();
     const sql = getSql();
     const results: Array<{
       task_code: string;
@@ -96,24 +135,7 @@ export async function POST() {
     return jsonOk({
       ok: true,
       items: results,
-      tip: "已预置：apparel_image_enrich（图片补全英文商品字段）、blog_topic_recommend（SEO/GEO 选题）、blog_seo_article（英文成稿+内链）。可在任务详情按站点再覆盖提示词。",
-    });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
-
-export async function GET() {
-  try {
-    await requireAdmin();
-    return jsonOk({
-      presets: CAPABILITY_PRESETS.map((p) => ({
-        task_code: p.task_code,
-        name: p.name,
-        description: p.description,
-        default_model_id: p.default_model_id,
-        fields: p.input_schema.map((f) => f.key + (f.required ? "*" : "")),
-      })),
+      tip: "已同步预置能力：apparel_image_enrich、blog_topic_recommend、blog_seo_article。请回到业务站重试。",
     });
   } catch (err) {
     return handleApiError(err);
