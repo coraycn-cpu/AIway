@@ -1,12 +1,15 @@
 /**
  * AIway business-site client (copy into your server-only code).
  *
+ * Docs: /api/docs/business-integration  |  Page: /integration
+ *
  * Env (server only):
  *   AI_SCHEDULER_URL=https://<aiway-host>/api/v1
  *   AI_SCHEDULER_TOKEN=sk_xxx
  *
  * Usage:
- *   import { runTaskJson, getAccount } from "./aiway-client";
+ *   import { runTaskJson, getAccount, runRawJson } from "./aiway-client";
+ *   const acc = await getAccount(); // modes.can_use_task / can_use_raw
  *   const { data } = await runTaskJson({ task: "ping", input: { message: "hi" } });
  */
 

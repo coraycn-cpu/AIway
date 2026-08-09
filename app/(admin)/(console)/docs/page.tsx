@@ -49,6 +49,11 @@ export default function DocsPage() {
           <code>/api/v1/run</code>、<code>/account</code>、<code>/usage</code>。
         </li>
         <li>
+          业务接入文档：公网 <a href="/integration">/integration</a>；Markdown{" "}
+          <a href="/api/docs/business-integration">/api/docs/business-integration</a>；SDK{" "}
+          <a href="/sdk/aiway-client.ts">/sdk/aiway-client.ts</a>。
+        </li>
+        <li>
           环境变量：<code>DATABASE_URL</code>/<code>POSTGRES_URL</code>、
           <code>AI_GATEWAY_API_KEY</code>、<code>ADMIN_SESSION_SECRET</code>。
         </li>
@@ -58,6 +63,10 @@ export default function DocsPage() {
         <li>余额/额度不足会直接拒绝，不调上游；成功/失败都会写 usage_logs。</li>
         <li>
           双模式开关：侧栏「运行模式」控制全局 Task/Raw；「站点」列表可按站开 Raw。
+        </li>
+        <li>
+          业务站解析优先 <code>output_json</code> / SDK <code>runTaskJson</code>，兼容 markdown
+          代码块。
         </li>
       </ul>
     </div>

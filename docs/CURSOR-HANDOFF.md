@@ -7,7 +7,7 @@
 在业务站 Cursor 对话中粘贴：
 
 ```text
-请按 AIway 接入文档完成本业务站服务端对接（Token 只放服务端）。
+请按 AIway 接入文档完成本业务站服务端对接（Token 只放服务端，禁止 NEXT_PUBLIC_*）。
 
 文档：
 https://ai-way-git-cursor-v1-ai-scheduler-e1cf-coraycn-6000s-projects.vercel.app/api/docs/business-integration
@@ -22,10 +22,14 @@ https://ai-way-git-cursor-v1-ai-scheduler-e1cf-coraycn-6000s-projects.vercel.app
 AI_SCHEDULER_URL=https://ai-way-git-cursor-v1-ai-scheduler-e1cf-coraycn-6000s-projects.vercel.app/api/v1
 AI_SCHEDULER_TOKEN=<管理员发放的 sk_xxx>
 
-先做 ping 探活，再接 apparel_image_enrich / blog_topic_recommend / blog_seo_article。
-
-双模式：默认 Task（task+input）。若管理员已开 Raw，可用 runRaw({ model_id, system, prompt }) 自带提示词，仍由 AIway 扣费。
-先 GET /account 看 modes.can_use_raw。
+实现要求：
+1) 用官方 SDK（runTaskJson / getAccount 等），不要手写半截 fetch
+2) 先 GET /account 探活，确认 status=active 与 balance
+3) runTaskJson({ task:"ping", input:{ message:"hi" } })
+4) 再接业务：enrichApparelFromImage / recommendBlogTopics / writeBlogSeoArticle
+5) 解析优先用 output_json 或 runTaskJson（兼容 ```json 围栏），禁止只 JSON.parse(output_text)
+6) 双模式：默认 Task。若 modes.can_use_raw=true，可用 runRaw / runRawJson 自带提示词，仍由 AIway 扣费
+7) 错误用 AiwayError 处理；402 提示充值；403 检查模式开关或站点停用
 ```
 
 Cursor Agent 可用 WebFetch 拉取上述 Markdown/SDK 后直接改业务站代码。
@@ -39,10 +43,8 @@ https://raw.githubusercontent.com/coraycn-cpu/AIway/cursor/v1-ai-scheduler-e1cf/
 
 ## 方式 C：同一机器多仓库
 
-若业务站仓库在本地，可让 Agent：
-
 ```bash
-curl -fsSL "<AIWAY>/sdk/aiway-client.ts" -o lib/aiway-client.ts
+curl -fsSL "<AIWAY_HOST>/sdk/aiway-client.ts" -o lib/aiway-client.ts
 ```
 
 ---
@@ -52,3 +54,4 @@ curl -fsSL "<AIWAY>/sdk/aiway-client.ts" -o lib/aiway-client.ts
 1. `AI_SCHEDULER_URL`
 2. `AI_SCHEDULER_TOKEN`
 3. 上面「方式 A」整段提示词
+4. （若需 Raw）确认已开全局 Raw + 该站 Raw
