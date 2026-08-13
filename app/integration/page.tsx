@@ -1,24 +1,20 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import Link from "next/link";
+import { PUBLIC_APP_ORIGIN } from "@/lib/public-origin";
 
 export const dynamic = "force-dynamic";
-
-function hostBase() {
-  if (typeof process.env.VERCEL_URL === "string" && process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  return "https://<aiway-host>";
-}
 
 export default function IntegrationPage() {
   const md = readFileSync(
     join(process.cwd(), "docs/BUSINESS-SITE-INTEGRATION.md"),
     "utf8",
   );
-  const base = hostBase();
+  const base = PUBLIC_APP_ORIGIN;
 
   const handoffPrompt = `请按 AIway 接入文档完成本业务站服务端对接（Token 只放服务端，禁止 NEXT_PUBLIC_*）。
+
+生产域名：${base}
 
 文档：
 ${base}/api/docs/business-integration
@@ -33,14 +29,18 @@ ${base}/integration
 AI_SCHEDULER_URL=${base}/api/v1
 AI_SCHEDULER_TOKEN=<向管理员索取>
 
+Open API：
+POST ${base}/api/v1/run
+GET  ${base}/api/v1/account
+GET  ${base}/api/v1/usage
+
 实现要求：
-1) 用官方 SDK（runTaskJson / getAccount 等），不要手写半截 fetch
+1) 用官方 SDK（runTaskJson / getAccount / runRawJson 等），不要手写半截 fetch
 2) 先 GET /account 探活，确认 status=active 与 balance
-3) runTaskJson({ task:"ping", input:{ message:"hi" } })
-4) 再接业务：enrichApparelFromImage / recommendBlogTopics / writeBlogSeoArticle
-5) 解析优先用 output_json 或 runTaskJson（兼容 markdown 代码块），禁止只 JSON.parse(output_text)
-6) 双模式：默认 Task。若 modes.can_use_raw=true，可用 runRaw / runRawJson 自带提示词，仍由 AIway 扣费
-7) 错误用 AiwayError 处理；402 提示充值；403 检查模式开关或站点停用`;
+3) 若只用 Raw（不写任务）：确认 modes.can_use_raw=true，用 runRaw / runRawJson，请求必须带 mode:"raw" 和 model_id
+4) 若用 Task：runTaskJson({ task:"ping", input:{ message:"hi" } })，再接预置能力
+5) 解析优先用 output_json 或 runTaskJson / runRawJson（兼容 markdown 代码块），禁止只 JSON.parse(output_text)
+6) 错误用 AiwayError 处理；402 提示充值；403 检查模式开关或站点停用`;
 
   return (
     <main className="page" style={{ maxWidth: 920, margin: "0 auto", padding: 24 }}>
@@ -49,7 +49,7 @@ AI_SCHEDULER_TOKEN=<向管理员索取>
       </p>
       <h1>业务网站接入</h1>
       <p className="muted">
-        给业务站 / 另一个 Cursor 项目直接使用的对接材料（文档版本见文末）。
+        生产域名 <a href={base}>{base}</a>。给业务站 / 另一个 Cursor 项目直接使用的对接材料。
       </p>
 
       <div className="tip tip-ok" style={{ marginTop: 16 }}>
@@ -58,10 +58,12 @@ AI_SCHEDULER_TOKEN=<向管理员索取>
           <p>把下面整段提示词粘贴到业务站项目的 Cursor 里：</p>
           <pre className="preview-box">{handoffPrompt}</pre>
           <p>
-            原始文档 API：{" "}
+            Open API： <a href={`${base}/api/v1`}>{base}/api/v1</a>
+            <br />
+            原始文档：{" "}
             <a href="/api/docs/business-integration">/api/docs/business-integration</a>
             <br />
-            SDK 文件： <a href="/sdk/aiway-client.ts">/sdk/aiway-client.ts</a>
+            SDK： <a href="/sdk/aiway-client.ts">/sdk/aiway-client.ts</a>
             <br />
             交接说明：见仓库 <code>docs/CURSOR-HANDOFF.md</code>
           </p>

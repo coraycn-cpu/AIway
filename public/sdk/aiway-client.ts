@@ -1,10 +1,11 @@
 /**
  * AIway business-site client (copy into your server-only code).
  *
- * Docs: /api/docs/business-integration  |  Page: /integration
+ * Docs: https://www.ryfs.cn/api/docs/business-integration
+ * Page: https://www.ryfs.cn/integration
  *
  * Env (server only):
- *   AI_SCHEDULER_URL=https://<aiway-host>/api/v1
+ *   AI_SCHEDULER_URL=https://www.ryfs.cn/api/v1
  *   AI_SCHEDULER_TOKEN=sk_xxx
  *
  * Usage:

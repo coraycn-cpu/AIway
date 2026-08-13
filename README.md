@@ -68,24 +68,38 @@ npm run db:migrate
 给**另一个 Cursor 业务站项目**直接拉取：
 
 → [`docs/CURSOR-HANDOFF.md`](./docs/CURSOR-HANDOFF.md)  
-→ 线上说明页：`/integration`  
-→ 原始文档 API：`/api/docs/business-integration`  
-→ SDK：`/sdk/aiway-client.ts`
+→ 线上说明页：https://www.ryfs.cn/integration  
+→ 原始文档 API：https://www.ryfs.cn/api/docs/business-integration  
+→ SDK：https://www.ryfs.cn/sdk/aiway-client.ts  
+→ 管理后台：https://www.ryfs.cn/login
 
 ## 业务站 Open API（速查）
 
-统一前缀：`/api/v1`  
+生产根地址：`https://www.ryfs.cn/api/v1`  
 鉴权：`Authorization: Bearer <site_token>`
 
 ### 调 AI
 
-`POST /api/v1/run`
+`POST https://www.ryfs.cn/api/v1/run`
+
+Task 模式：
 
 ```json
 {
   "task": "ping",
   "input": { "message": "hello" },
   "trace_id": "optional"
+}
+```
+
+Raw 模式（不写任务，需后台开全局 Raw + 站点 Raw）：
+
+```json
+{
+  "mode": "raw",
+  "model_id": "google/gemini-2.5-flash",
+  "system": "You are a helpful assistant.",
+  "prompt": "Hello"
 }
 ```
 
@@ -137,17 +151,17 @@ npm run db:migrate
 
 ### 查余额
 
-`GET /api/v1/account`
+`GET https://www.ryfs.cn/api/v1/account`
 
 ### 查用量
 
-`GET /api/v1/usage?page=1&page_size=20`  
-`GET /api/v1/usage/{request_id}`
+`GET https://www.ryfs.cn/api/v1/usage?page=1&page_size=20`  
+`GET https://www.ryfs.cn/api/v1/usage/{request_id}`
 
 ### 业务站环境变量
 
 ```text
-AI_SCHEDULER_URL=https://<your-app>.vercel.app/api/v1
+AI_SCHEDULER_URL=https://www.ryfs.cn/api/v1
 AI_SCHEDULER_TOKEN=sk_xxx
 ```
 
@@ -184,7 +198,7 @@ await fetch(`${base}/usage?page=1`, {
 2. 配置上述三个环境变量
 3. Deploy
 4. 对线上 `DATABASE_URL` 执行 `npm run db:migrate`（可用 Vercel CLI / 本地一次性跑）
-5. 打开 `https://<app>.vercel.app/login` 用管理员账号登录
+5. 打开 https://www.ryfs.cn/login 用管理员账号登录
 6. 创建测试站点 → 发 Token → 充值 → 用 curl 打通 `/run`
 
 ## 核心规则

@@ -46,12 +46,17 @@ export default function DocsPage() {
         </li>
         <li>
           业务站：服务端持有 <code>Authorization: Bearer &lt;token&gt;</code>，调用{" "}
-          <code>/api/v1/run</code>、<code>/account</code>、<code>/usage</code>。
+          <code>https://www.ryfs.cn/api/v1/run</code>、<code>/account</code>、<code>/usage</code>。
         </li>
         <li>
-          业务接入文档：公网 <a href="/integration">/integration</a>；Markdown{" "}
-          <a href="/api/docs/business-integration">/api/docs/business-integration</a>；SDK{" "}
-          <a href="/sdk/aiway-client.ts">/sdk/aiway-client.ts</a>。
+          业务接入文档：
+          <a href="https://www.ryfs.cn/integration">https://www.ryfs.cn/integration</a>
+          ；Markdown{" "}
+          <a href="https://www.ryfs.cn/api/docs/business-integration">
+            /api/docs/business-integration
+          </a>
+          ；SDK{" "}
+          <a href="https://www.ryfs.cn/sdk/aiway-client.ts">/sdk/aiway-client.ts</a>。
         </li>
         <li>
           环境变量：<code>DATABASE_URL</code>/<code>POSTGRES_URL</code>、

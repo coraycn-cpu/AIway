@@ -3,25 +3,29 @@
 > **适用对象**：业务站后端 / 另一个 Cursor 项目  
 > **目标**：约 30 分钟完成 Token 联调  
 > **原则**：业务站**不持有**上游模型 Key；只持有 AIway 调度 Token  
-> **文档版本**：V1.2（Task + Raw 双模式）
+> **文档版本**：V1.3（生产域名 `www.ryfs.cn`）  
+> **生产根地址**：`https://www.ryfs.cn`
 
 ---
 
-## 0. 给另一个 Cursor 项目：直接拉取
+## 0. 生产环境入口
 
-部署后公网可访问：
-
-| 资源 | 路径 |
-|------|------|
-| 本文档（Markdown） | `/api/docs/business-integration` |
-| 官方 SDK | `/sdk/aiway-client.ts` |
-| 可视化说明页 | `/integration` |
-| 交接提示词 | `docs/CURSOR-HANDOFF.md` |
+| 用途 | 完整 URL |
+|------|----------|
+| Open API 根路径 | `https://www.ryfs.cn/api/v1` |
+| 调 AI | `POST https://www.ryfs.cn/api/v1/run` |
+| 查余额 / 模式 | `GET https://www.ryfs.cn/api/v1/account` |
+| 查用量 | `GET https://www.ryfs.cn/api/v1/usage` |
+| 单次用量 | `GET https://www.ryfs.cn/api/v1/usage/{request_id}` |
+| 本文档（Markdown） | `https://www.ryfs.cn/api/docs/business-integration` |
+| 官方 SDK | `https://www.ryfs.cn/sdk/aiway-client.ts` |
+| 可视化说明页 | `https://www.ryfs.cn/integration` |
+| 管理后台登录 | `https://www.ryfs.cn/login` |
 
 **推荐做法**：把 SDK 下载到业务站服务端（如 `lib/aiway-client.ts`），不要手抄半截封装。
 
 ```bash
-curl -fsSL "https://<aiway-host>/sdk/aiway-client.ts" -o lib/aiway-client.ts
+curl -fsSL "https://www.ryfs.cn/sdk/aiway-client.ts" -o lib/aiway-client.ts
 ```
 
 ---
@@ -32,7 +36,7 @@ curl -fsSL "https://<aiway-host>/sdk/aiway-client.ts" -o lib/aiway-client.ts
 
 | 项 | 说明 |
 |----|------|
-| `AI_SCHEDULER_URL` | 例如 `https://xxx.vercel.app/api/v1`（**已含** `/api/v1`） |
+| `AI_SCHEDULER_URL` | `https://www.ryfs.cn/api/v1`（**已含** `/api/v1`） |
 | `AI_SCHEDULER_TOKEN` | 形如 `sk_...`，创建时只展示一次 |
 | 可用能力 | 至少：`ping`；业务：`apparel_image_enrich` / `blog_topic_recommend` / `blog_seo_article` |
 | （可选）Raw 权限 | 若要用自带提示词：管理员需开「全局 Raw」+ 本站「开 Raw」 |
@@ -49,12 +53,11 @@ curl -fsSL "https://<aiway-host>/sdk/aiway-client.ts" -o lib/aiway-client.ts
 
 ```bash
 # 1) 环境变量（仅服务端）
-AI_SCHEDULER_URL=https://<aiway-host>/api/v1
+AI_SCHEDULER_URL=https://www.ryfs.cn/api/v1
 AI_SCHEDULER_TOKEN=sk_xxxxxxxx
 
 # 2) 下载 SDK
-curl -fsSL "$AI_SCHEDULER_URL/../sdk/aiway-client.ts" -o lib/aiway-client.ts
-# 或打开：https://<aiway-host>/sdk/aiway-client.ts
+curl -fsSL "https://www.ryfs.cn/sdk/aiway-client.ts" -o lib/aiway-client.ts
 ```
 
 ```ts
@@ -75,7 +78,7 @@ console.log(ping.data, ping.request_id);
 ## 3. 环境变量（仅服务端）
 
 ```bash
-AI_SCHEDULER_URL=https://<aiway-host>/api/v1
+AI_SCHEDULER_URL=https://www.ryfs.cn/api/v1
 AI_SCHEDULER_TOKEN=sk_xxxxxxxx
 ```
 
@@ -91,7 +94,7 @@ AI_SCHEDULER_TOKEN=sk_xxxxxxxx
 
 ## 4. 鉴权与约定
 
-- Base URL：`AI_SCHEDULER_URL`（已含 `/api/v1`）
+- Base URL：`https://www.ryfs.cn/api/v1`（环境变量 `AI_SCHEDULER_URL`）
 - Header：
 
 ```http
@@ -348,7 +351,7 @@ const { data } = await writeBlogSeoArticle({
 ## 8. `GET /account` — 余额与模式
 
 ```http
-GET /api/v1/account
+GET https://www.ryfs.cn/api/v1/account
 Authorization: Bearer sk_xxx
 ```
 
@@ -396,7 +399,7 @@ if (!acc.modes?.can_use_raw) {
 ## 9. `GET /usage` — 用量
 
 ```http
-GET /api/v1/usage?from=&to=&page=1&page_size=20&task=apparel_image_enrich
+GET https://www.ryfs.cn/api/v1/usage?from=&to=&page=1&page_size=20&task=apparel_image_enrich
 Authorization: Bearer sk_xxx
 ```
 
@@ -409,7 +412,7 @@ Authorization: Bearer sk_xxx
 响应含 `items[]` 与 `summary`（总次数、总费用、总 tokens）。
 
 ```http
-GET /api/v1/usage/{request_id}
+GET https://www.ryfs.cn/api/v1/usage/{request_id}
 ```
 
 ```ts
@@ -560,6 +563,7 @@ A: 明文只展示一次。请管理员吊销旧 Token 并重新签发。
 
 ---
 
-文档版本：V1.2  
+文档版本：V1.3  
 维护方：AIway 调度系统  
-变更摘要：补全 Task/Raw 双模式、modes 探测、`output_json` 优先解析、官方 SDK 封装与联调清单。
+生产域名：`https://www.ryfs.cn`  
+变更摘要：接口说明改为生产域名；补全 Task/Raw、modes 探测、`output_json` 优先解析与官方 SDK。
