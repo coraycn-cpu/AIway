@@ -13,7 +13,8 @@
 | 用途 | 完整 URL |
 |------|----------|
 | Open API 根路径 | `https://www.ryfs.cn/api/v1` |
-| 调 AI | `POST https://www.ryfs.cn/api/v1/run` |
+| Open API | `POST https://www.ryfs.cn/api/v1/run` |
+| OpenAI 兼容 | `POST https://www.ryfs.cn/api/v1/chat/completions` |
 | 查余额 / 模式 | `GET https://www.ryfs.cn/api/v1/account` |
 | 查用量 | `GET https://www.ryfs.cn/api/v1/usage` |
 | 单次用量 | `GET https://www.ryfs.cn/api/v1/usage/{request_id}` |
@@ -116,6 +117,7 @@ Content-Type: application/json
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | `POST` | `/run` | 调用 AI 并扣费（Task 或 Raw） |
+| `POST` | `/chat/completions` | **OpenAI 兼容**（业务站「OpenAI 兼容视觉接口」用这个） |
 | `GET` | `/account` | 查余额 / 额度 / 模式开关 |
 | `GET` | `/usage` | 查本站用量列表（分页） |
 | `GET` | `/usage/{request_id}` | 查单次调用 |
@@ -132,6 +134,22 @@ AIway 支持 **Task** 与 **Raw** 两种调用方式，由后台开关控制。
 | **Raw** | 业务站自带 `model_id` + 提示词，仍走鉴权扣费 | `{ mode:"raw", model_id, prompt, ... }` | 全局 `raw_mode_enabled` **且** 站点 `raw_enabled` |
 
 探测权限：先调 `GET /account`，看 `modes.can_use_task` / `modes.can_use_raw`。
+
+### 6.0 业务站「OpenAI 兼容视觉接口」怎么填
+
+若后台选的是 **OpenAI 兼容视觉接口**（会自动请求 `{Base URL}/chat/completions`）：
+
+| 字段 | 填写 |
+|------|------|
+| 服务商 | OpenAI 兼容视觉接口 |
+| 视觉模型 | `google/gemini-2.0-flash`（目录里的完整 id；也可写 `gemini-2.0-flash`，会自动匹配） |
+| 视觉 API Key | AIway 签发的 `sk_...` |
+| 视觉 Base URL | **`https://www.ryfs.cn/api/v1`**（不要写成 `/api/v1/run`） |
+
+实际请求：`POST https://www.ryfs.cn/api/v1/chat/completions`  
+计费走 Raw（需全局 Raw + 站点 Raw）。图片请传 **公网 https URL**，不要传 base64。
+
+若误把 Base URL 填成 `https://www.ryfs.cn/api/v1/run`，AIway 也兼容 `.../run/chat/completions`，但推荐仍用 `/api/v1`。
 
 ### 6.1 Task 模式（默认，推荐）
 

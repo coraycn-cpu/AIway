@@ -26,6 +26,7 @@ AI_SCHEDULER_TOKEN=<管理员发放的 sk_xxx>
 
 Open API：
 POST https://www.ryfs.cn/api/v1/run
+POST https://www.ryfs.cn/api/v1/chat/completions   （OpenAI 兼容视觉接口：Base URL 填 https://www.ryfs.cn/api/v1）
 GET  https://www.ryfs.cn/api/v1/account
 GET  https://www.ryfs.cn/api/v1/usage
 

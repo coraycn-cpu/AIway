@@ -82,6 +82,10 @@ npm run db:migrate
 
 `POST https://www.ryfs.cn/api/v1/run`
 
+OpenAI 兼容（业务站「OpenAI 兼容视觉接口」，Base URL 填 `https://www.ryfs.cn/api/v1`）：
+
+`POST https://www.ryfs.cn/api/v1/chat/completions`
+
 Task 模式：
 
 ```json
