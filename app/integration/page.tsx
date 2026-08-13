@@ -31,6 +31,7 @@ AI_SCHEDULER_TOKEN=<向管理员索取>
 
 Open API：
 POST ${base}/api/v1/run
+POST ${base}/api/v1/chat/completions   （OpenAI 兼容：Base URL 填 ${base}/api/v1）
 GET  ${base}/api/v1/account
 GET  ${base}/api/v1/usage
 
