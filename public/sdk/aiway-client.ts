@@ -1,17 +1,8 @@
 /**
- * AIway business-site client (copy into your server-only code).
- *
- * Docs: https://www.ryfs.cn/api/docs/business-integration
- * Page: https://www.ryfs.cn/integration
- *
- * Env (server only):
- *   AI_SCHEDULER_URL=https://www.ryfs.cn/api/v1
- *   AI_SCHEDULER_TOKEN=sk_xxx
- *
- * Usage:
- *   import { runTaskJson, getAccount, runRawJson } from "./aiway-client";
- *   const acc = await getAccount(); // modes.can_use_task / can_use_raw
- *   const { data } = await runTaskJson({ task: "ping", input: { message: "hi" } });
+ * AIway server-only client.
+ * Spec: https://www.ryfs.cn/api/docs/business-integration
+ * Env: AI_SCHEDULER_URL=https://www.ryfs.cn/api/v1
+ *      AI_SCHEDULER_TOKEN=sk_xxx
  */
 
 export type RunInput = {

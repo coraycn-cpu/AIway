@@ -45,13 +45,7 @@ export default function DocsPage() {
           管理端：账号密码登录后台，负责开户、发 Token、充值、配置任务/提示词、查看全局日志。
         </li>
         <li>
-          业务站：服务端持有 <code>Authorization: Bearer &lt;token&gt;</code>，调用{" "}
-          <code>https://www.ryfs.cn/api/v1/run</code>、<code>/account</code>、<code>/usage</code>。
-        </li>
-        <li>
-          业务接入文档：
-          <a href="https://www.ryfs.cn/integration">https://www.ryfs.cn/integration</a>
-          ；Markdown{" "}
+          业务站：服务端 Bearer Token。接口说明{" "}
           <a href="https://www.ryfs.cn/api/docs/business-integration">
             /api/docs/business-integration
           </a>
