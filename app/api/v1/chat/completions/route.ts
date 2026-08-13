@@ -1,13 +1,14 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { authenticateBearer } from "@/lib/auth";
-import { runGatewayModel } from "@/lib/ai";
+import { runGatewayModel, formatUpstreamError } from "@/lib/ai";
 import { assertCanSpend, calcCost, chargeAccount } from "@/lib/billing";
 import { getSql } from "@/lib/db";
 import { getModeSettings, ModeForbiddenError } from "@/lib/settings";
 import { handleApiError } from "@/lib/api/errors";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type ChatMessage = {
   role?: string;
@@ -56,7 +57,9 @@ function imageUrlsFromContent(content: unknown): string[] {
       typeof p.image_url === "string"
         ? p.image_url
         : p.image_url?.url || p.url || "";
-    if (typeof raw === "string" && /^https?:\/\//i.test(raw)) urls.push(raw);
+    if (typeof raw === "string" && (/^https?:\/\//i.test(raw) || /^data:image\//i.test(raw))) {
+      urls.push(raw);
+    }
   }
   return [...new Set(urls)].slice(0, 6);
 }
@@ -145,7 +148,7 @@ export async function POST(req: Request) {
     const modelName = String(json?.model || "").trim();
     const messages = Array.isArray(json?.messages) ? json.messages : [];
     if (!modelName) {
-      return openaiError(400, "Missing model. Use a catalog id such as google/gemini-2.0-flash.");
+      return openaiError(400, "Missing model. Use a catalog id such as google/gemini-2.5-flash.");
     }
     if (messages.length === 0) {
       return openaiError(400, "Missing messages[]");
@@ -156,7 +159,7 @@ export async function POST(req: Request) {
     if (!model) {
       return openaiError(
         404,
-        `Model not found or disabled in AIway catalog: ${modelName}. Try google/gemini-2.0-flash`,
+        `Model not found or disabled in AIway catalog: ${modelName}. Try google/gemini-2.5-flash`,
         "model_not_found",
       );
     }
@@ -187,7 +190,8 @@ export async function POST(req: Request) {
       outputTokens = result.outputTokens;
       totalTokens = result.totalTokens || inputTokens + outputTokens;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Upstream model failed";
+      console.error("vision completions upstream error", requestId, err);
+      const message = formatUpstreamError(err);
       await sql`
         INSERT INTO usage_logs (
           request_id, site_id, account_id, task_code, model_id,
@@ -199,7 +203,7 @@ export async function POST(req: Request) {
           ${Date.now() - started}
         )
       `;
-      return openaiError(502, "Upstream model failed", "502");
+      return openaiError(502, `Upstream model failed: ${message}`, "502");
     }
 
     const cost = calcCost(

@@ -142,14 +142,16 @@ AIway 支持 **Task** 与 **Raw** 两种调用方式，由后台开关控制。
 | 字段 | 填写 |
 |------|------|
 | 服务商 | OpenAI 兼容视觉接口 |
-| 视觉模型 | `google/gemini-2.0-flash`（目录里的完整 id；也可写 `gemini-2.0-flash`，会自动匹配） |
+| 视觉模型 | `google/gemini-2.5-flash`（目录完整 id；也可写 `gemini-2.5-flash`。`gemini-2.0-flash` 在 Gateway 上可能已不可用） |
 | 视觉 API Key | AIway 签发的 `sk_...` |
 | 视觉 Base URL | **`https://www.ryfs.cn/api/v1`**（不要写成 `/api/v1/run`） |
 
 实际请求：`POST https://www.ryfs.cn/api/v1/chat/completions`  
-计费走 Raw（需全局 Raw + 站点 Raw）。图片请传 **公网 https URL**，不要传 base64。
+计费走 Raw（需全局 Raw + 站点 Raw）。图片优先传 **公网 https URL**；也接受较小的 `data:image/...;base64,`（约 3.5MB 以内）。
 
 若误把 Base URL 填成 `https://www.ryfs.cn/api/v1/run`，AIway 也兼容 `.../run/chat/completions`，但推荐仍用 `/api/v1`。
+
+502 时响应 `error.message` 会带上 Gateway 原文（例如模型未开通、图片拉取失败），同时写入调用日志 `error_message`。
 
 ### 6.1 Task 模式（默认，推荐）
 
@@ -202,7 +204,7 @@ SDK：`runTask` / `runTaskJson`，以及预置封装 `enrichApparelFromImage` �
 | `system` | string | 否 | 系统提示词 |
 | `temperature` | number | 否 | 0–2，默认约 0.7 |
 | `max_tokens` | number | 否 | 上限 16000 |
-| `image_urls` | string[] | 否 | 公网图片 URL，最多 6 |
+| `image_urls` | string[] | 否 | 公网 https URL，或较小的 `data:image` URI，最多 6 |
 | `input` | object | 否 | 额外透传（如兼容 `image_url`） |
 | `trace_id` | string | 否 | 业务追踪 ID |
 
@@ -256,10 +258,10 @@ Raw 模式用顶层 `image_urls`（也可放 `input.image_url`）。
 
 要求：
 
-1. 优先 `https://`（或 Gateway 可拉取的 URL）  
-2. **不要**传 base64；先上传 CDN/OSS 再传 URL  
+1. 优先 `https://`（Gateway 可拉取的公网 URL）  
+2. 也接受较小的 `data:image/...;base64,`（约 3.5MB 以内）；大图请先上传 CDN/OSS  
 3. 私有桶请签发短期可读 URL  
-4. 识图任务请选视觉模型（如 Gemini Flash）
+4. 识图任务请选视觉模型（推荐 `google/gemini-2.5-flash`）
 
 ---
 
@@ -463,7 +465,7 @@ const one = await getUsage(requestId);
 | 403 | 站点停用，或 Task/Raw 模式未开启 | 停用则告警；模式问题联系管理员开开关 |
 | 404 | 任务 / 模型 / 提示词 / 记录不存在 | 确认预置已同步、模型已启用、有全局提示词 |
 | 429 | 限流 | 退避重试 |
-| 502 | 上游模型失败 | 可重试；保留 `request_id` 反馈管理员 |
+| 502 | 上游模型失败 | 可重试；`error.message` 含 Gateway 原文；保留 `request_id` 反馈管理员 |
 
 SDK 失败时抛出 `AiwayError`（含 `status` / `code` / `body`）。
 

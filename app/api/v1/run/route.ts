@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { authenticateBearer } from "@/lib/auth";
-import { runGatewayModel } from "@/lib/ai";
+import { runGatewayModel, formatUpstreamError } from "@/lib/ai";
 import { assertCanSpend, calcCost, chargeAccount } from "@/lib/billing";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
@@ -14,6 +14,7 @@ import { parseModelJson } from "@/lib/api/parseModelJson";
 import { getModeSettings, ModeForbiddenError } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const taskBodySchema = z.object({
   mode: z.literal("task").optional(),
@@ -29,7 +30,15 @@ const rawBodySchema = z.object({
   prompt: z.string().min(1),
   temperature: z.number().min(0).max(2).optional(),
   max_tokens: z.number().int().positive().max(16000).optional(),
-  image_urls: z.array(z.string().url()).max(6).optional(),
+  image_urls: z
+    .array(
+      z.string().refine(
+        (s) => /^https?:\/\//i.test(s) || /^data:image\//i.test(s),
+        "image must be an https URL or data:image URI",
+      ),
+    )
+    .max(6)
+    .optional(),
   input: z.record(z.string(), z.unknown()).optional(),
   trace_id: z.string().optional(),
 });
@@ -114,7 +123,8 @@ export async function POST(req: Request) {
         outputTokens = result.outputTokens;
         totalTokens = result.totalTokens || inputTokens + outputTokens;
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Upstream model failed";
+        console.error("raw run upstream error", requestId, err);
+        const message = formatUpstreamError(err);
         await sql`
           INSERT INTO usage_logs (
             request_id, site_id, account_id, task_code, model_id,
@@ -126,7 +136,7 @@ export async function POST(req: Request) {
             ${traceId ?? null}, ${Date.now() - started}
           )
         `;
-        return jsonError(502, "502", "Upstream model failed", { request_id: requestId });
+        return jsonError(502, "502", `Upstream model failed: ${message}`, { request_id: requestId });
       }
 
       const cost = calcCost(
@@ -249,7 +259,8 @@ export async function POST(req: Request) {
       outputTokens = result.outputTokens;
       totalTokens = result.totalTokens || inputTokens + outputTokens;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Upstream model failed";
+      console.error("task run upstream error", requestId, err);
+      const message = formatUpstreamError(err);
       await sql`
         INSERT INTO usage_logs (
           request_id, site_id, account_id, task_id, task_code, model_id,
@@ -261,7 +272,7 @@ export async function POST(req: Request) {
           ${traceId ?? null}, ${Date.now() - started}
         )
       `;
-      return jsonError(502, "502", "Upstream model failed", { request_id: requestId });
+      return jsonError(502, "502", `Upstream model failed: ${message}`, { request_id: requestId });
     }
 
     const cost = calcCost(
