@@ -53,6 +53,31 @@ export const DEFAULT_MODEL_SEEDS = [
     input: 2,
     output: 12,
   },
+  {
+    model_id: "google/gemini-3.1-flash-lite-image",
+    display_name: "Gemini 3.1 Flash Lite Image",
+    input: 0.25,
+    output: 1.5,
+  },
+  {
+    model_id: "google/gemini-3.1-flash-image-preview",
+    display_name: "Gemini 3.1 Flash Image Preview",
+    input: 0.3,
+    output: 2.5,
+  },
+  {
+    model_id: "google/gemini-3-pro-image",
+    display_name: "Gemini 3 Pro Image",
+    input: 1.25,
+    output: 10,
+  },
+  {
+    model_id: "google/gemini-2.5-flash-image",
+    display_name: "Gemini 2.5 Flash Image",
+    input: 0.3,
+    output: 2.5,
+  },
+  { model_id: "openai/gpt-image-2", display_name: "GPT Image 2", input: 5, output: 30 },
 ] as const;
 
 export async function POST() {
@@ -79,7 +104,7 @@ export async function POST() {
     return jsonOk({
       upserted,
       items: rows,
-      tip: "已写入 DeepSeek / Gemini / OpenAI / Anthropic 常用模型。单价为对客户售价，可按需再改。",
+      tip: "已写入 DeepSeek / Gemini / OpenAI / Anthropic / 图片编辑模型。单价为对客户售价，可按需再改。",
     });
   } catch (err) {
     return handleApiError(err);
