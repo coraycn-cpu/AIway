@@ -1,8 +1,9 @@
-import { generateText, type UserContent, APICallError } from "ai";
+import { generateImage, generateText, type UserContent, APICallError } from "ai";
 import { gateway, GatewayError } from "@ai-sdk/gateway";
 
 const MAX_IMAGES = 6;
 const MAX_DATA_URI_CHARS = 3_500_000;
+const MAX_IMAGE_BYTES = 8_000_000;
 
 function isHttpUrl(value: string) {
   return /^https?:\/\//i.test(value);
@@ -165,5 +166,113 @@ export async function runGatewayModel(opts: {
     outputTokens: result.usage?.outputTokens ?? 0,
     totalTokens: result.usage?.totalTokens ?? 0,
     imageCount: imageUrls.length,
+  };
+}
+
+export type ImageEditInput = {
+  data: Uint8Array;
+  mediaType: string;
+};
+
+export type ImageEditOutput = {
+  b64_json: string;
+  mediaType: string;
+};
+
+function isMultimodalImageLlm(modelId: string) {
+  return /gemini-.*image|flash-image|pro-image|nano-banana/i.test(modelId);
+}
+
+function isImageOnlyModel(modelId: string) {
+  return /(^|\/)(gpt-image|dall-e|imagen|flux|grok-imagine)/i.test(modelId);
+}
+
+function fileToBase64(file: { base64: string; mediaType?: string }): ImageEditOutput {
+  const raw = file.base64.includes(",")
+    ? file.base64.slice(file.base64.indexOf(",") + 1)
+    : file.base64;
+  return {
+    b64_json: raw,
+    mediaType: file.mediaType || "image/png",
+  };
+}
+
+/**
+ * Image edit / generation via Vercel AI Gateway.
+ * - Gemini Nano Banana family → generateText + IMAGE modality
+ * - Image-only models (gpt-image, imagen, flux…) → generateImage
+ */
+export async function runGatewayImageEdit(opts: {
+  modelId: string;
+  prompt: string;
+  images: ImageEditInput[];
+  n?: number;
+}) {
+  if (!process.env.AI_GATEWAY_API_KEY) {
+    throw new Error("AI_GATEWAY_API_KEY is not set");
+  }
+
+  const n = Math.min(Math.max(opts.n ?? 1, 1), 4);
+  const prompt = opts.prompt.trim() || "Edit the image as requested.";
+
+  for (const img of opts.images) {
+    if (img.data.byteLength > MAX_IMAGE_BYTES) {
+      throw new Error("Input image exceeds 8MB limit");
+    }
+  }
+
+  if (isImageOnlyModel(opts.modelId) && !isMultimodalImageLlm(opts.modelId)) {
+    const result = await generateImage({
+      model: gateway.image(opts.modelId),
+      prompt:
+        opts.images.length > 0
+          ? {
+              text: prompt,
+              images: opts.images.map((img) => img.data),
+            }
+          : prompt,
+      n,
+    });
+    return {
+      images: result.images.map((img) => fileToBase64(img)),
+      text: "",
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+  }
+
+  const content: UserContent = [
+    { type: "text", text: prompt },
+    ...opts.images.map((img) => ({
+      type: "image" as const,
+      image: img.data,
+      mediaType: img.mediaType,
+    })),
+  ];
+
+  const result = await generateText({
+    model: gateway(opts.modelId),
+    messages: [{ role: "user", content }],
+    providerOptions: {
+      google: { responseModalities: ["TEXT", "IMAGE"] },
+    },
+  });
+
+  const files = (result.files || []).filter((f) =>
+    (f.mediaType || "").startsWith("image/"),
+  );
+  if (files.length === 0) {
+    throw new Error(
+      "Upstream returned no image. Use an image model such as google/gemini-3.1-flash-lite-image",
+    );
+  }
+
+  return {
+    images: files.slice(0, n).map((f) => fileToBase64(f)),
+    text: result.text || "",
+    inputTokens: result.usage?.inputTokens ?? 0,
+    outputTokens: result.usage?.outputTokens ?? 0,
+    totalTokens: result.usage?.totalTokens ?? 0,
   };
 }
