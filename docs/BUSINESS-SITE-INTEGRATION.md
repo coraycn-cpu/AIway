@@ -14,7 +14,9 @@ Token 仅服务端。SDK：`https://www.ryfs.cn/sdk/aiway-client.ts` → `lib/ai
 | 方法 | 路径 | SDK |
 |------|------|-----|
 | POST | `/run` | `runTask` `runTaskJson` `runRaw` `runRawJson` |
-| POST | `/chat/completions` | 无（OpenAI 兼容视觉表单） |
+| POST | `/chat/completions` | 无（OpenAI 兼容视觉理解） |
+| POST | `/images/edits` | 无（OpenAI 兼容图片编辑/版式翻译） |
+| POST | `/images/generations` | 无（OpenAI 兼容文生图） |
 | GET | `/account` | `getAccount` |
 | GET | `/usage` | `listUsage` |
 | GET | `/usage/{request_id}` | `getUsage` |
@@ -22,7 +24,7 @@ Token 仅服务端。SDK：`https://www.ryfs.cn/sdk/aiway-client.ts` → `lib/ai
 先 `GET /account`：`status==="active"` 且 `balance>0`。  
 JSON 输出：用 `output_json` 或 `runTaskJson`/`runRawJson`，禁止只 `JSON.parse(output_text)`。  
 图片：`https://` 或 `data:image/...;base64,`（≤3.5MB），最多 6。别名：`image_url` `image_urls` `images` `fabric_image_url` `product_image_url`。  
-超时：文本 60s，带图 90–120s。
+超时：文本 60s，带图/生图 90–120s。
 
 ---
 
@@ -162,6 +164,51 @@ OpenAI 兼容。计费同 Raw（需 `can_use_raw`）。
 ```
 
 错误体：`{"error":{"message":"...","type":"api_error","code":"502"}}`
+
+---
+
+## POST /images/edits
+
+OpenAI 兼容图片编辑。计费同 Raw（需 `can_use_raw`）。日志 `task_code=image_edit`。
+
+业务站「OpenAI 兼容图片编辑接口」：`base_url=https://www.ryfs.cn/api/v1`；`model=google/gemini-3.1-flash-lite-image`（短名 `gemini-3.1-flash-lite-image` 可解析）；`api_key=sk_...`。
+
+`Content-Type`：`multipart/form-data`（推荐）或 `application/json`。
+
+multipart 字段：`model` `prompt` `image`（文件，可多份）`n` `response_format`（`b64_json`|`url`）。
+
+JSON：
+
+```json
+{
+  "model": "google/gemini-3.1-flash-lite-image",
+  "prompt": "Translate all visible text to Simplified Chinese. Keep layout.",
+  "image": "data:image/png;base64,...",
+  "n": 1,
+  "response_format": "b64_json"
+}
+```
+
+`image` / `images` / `image_url` / `image_urls`：https URL 或 `data:image`；单图 ≤8MB。
+
+```json
+{
+  "created": 0,
+  "data": [{ "b64_json": "..." }],
+  "model": "google/gemini-3.1-flash-lite-image",
+  "request_id": "uuid"
+}
+```
+
+`response_format=url` 时返回 `data[].url`（data URI，无独立托管）。错误体同 `/chat/completions`。
+
+推荐图模：`google/gemini-3.1-flash-lite-image` `google/gemini-3.1-flash-image-preview` `google/gemini-3-pro-image` `openai/gpt-image-2`。
+
+---
+
+## POST /images/generations
+
+文生图。JSON：`model` `prompt` `n` `response_format`。响应同 `/images/edits`。日志 `task_code=image_gen`。
 
 ---
 
