@@ -171,7 +171,15 @@ OpenAI 兼容。计费同 Raw（需 `can_use_raw`）。
 
 OpenAI 兼容图片编辑。计费同 Raw（需 `can_use_raw`）。日志 `task_code=image_edit`。
 
-业务站「OpenAI 兼容图片编辑接口」：`base_url=https://www.ryfs.cn/api/v1`；`model=google/gemini-3.1-flash-lite-image`（短名 `gemini-3.1-flash-lite-image` 可解析）；`api_key=sk_...`。
+业务站「OpenAI 兼容图片编辑接口」：
+
+| 字段 | 值 |
+|------|-----|
+| Base URL | 优先 `https://www.ryfs.cn/api/v1`；若仍 HTML 404 改 `https://www.ryfs.cn/api`（部分客户端会再拼 `/v1/images/edits`） |
+| model | `google/gemini-3.1-flash-lite-image`（短名可解析） |
+| api_key | AIway `sk_...` |
+
+实际路径：`POST .../images/edits`。兼容别名：`/api/v1/v1/images/edits`、`/api/images/edits`、`/api/v1/run/images/edits`。
 
 `Content-Type`：`multipart/form-data`（推荐）或 `application/json`。
 
