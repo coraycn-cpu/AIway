@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
 import { emptyToNull, ensureListIndexes, listMeta, parseListQuery } from "@/lib/admin/list-query";
+import { invalidateCatalogCache } from "@/lib/catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export async function GET(req: Request) {
       SELECT id, model_id, display_name,
              input_price_per_1m::text AS input_price_per_1m,
              output_price_per_1m::text AS output_price_per_1m,
+             COALESCE(min_cost_per_call, 0)::text AS min_cost_per_call,
              enabled, created_at, updated_at
       FROM model_catalog
       WHERE (${provider}::text IS NULL OR split_part(model_id, '/', 1) = ${provider})
@@ -65,29 +67,37 @@ export async function POST(req: Request) {
         display_name: z.string().min(1),
         input_price_per_1m: z.number().nonnegative(),
         output_price_per_1m: z.number().nonnegative(),
+        min_cost_per_call: z.number().nonnegative().optional(),
         enabled: z.boolean().optional(),
       })
       .safeParse(await req.json().catch(() => null));
     if (!body.success) return jsonError(400, "400", "Invalid model payload");
 
     const sql = getSql();
+    const minCost = body.data.min_cost_per_call ?? 0;
     const rows = await sql`
-      INSERT INTO model_catalog (model_id, display_name, input_price_per_1m, output_price_per_1m, enabled)
+      INSERT INTO model_catalog (
+        model_id, display_name, input_price_per_1m, output_price_per_1m,
+        min_cost_per_call, enabled
+      )
       VALUES (
         ${body.data.model_id},
         ${body.data.display_name},
         ${body.data.input_price_per_1m},
         ${body.data.output_price_per_1m},
+        ${minCost},
         ${body.data.enabled ?? true}
       )
       ON CONFLICT (model_id) DO UPDATE SET
         display_name = EXCLUDED.display_name,
         input_price_per_1m = EXCLUDED.input_price_per_1m,
         output_price_per_1m = EXCLUDED.output_price_per_1m,
+        min_cost_per_call = EXCLUDED.min_cost_per_call,
         enabled = EXCLUDED.enabled,
         updated_at = NOW()
       RETURNING *
     `;
+    invalidateCatalogCache();
     return jsonOk({ item: rows[0] });
   } catch (err) {
     return handleApiError(err);
@@ -103,6 +113,7 @@ export async function PATCH(req: Request) {
         display_name: z.string().optional(),
         input_price_per_1m: z.number().nonnegative().optional(),
         output_price_per_1m: z.number().nonnegative().optional(),
+        min_cost_per_call: z.number().nonnegative().optional(),
         enabled: z.boolean().optional(),
       })
       .safeParse(await req.json().catch(() => null));
@@ -114,10 +125,12 @@ export async function PATCH(req: Request) {
         display_name = COALESCE(${body.data.display_name ?? null}, display_name),
         input_price_per_1m = COALESCE(${body.data.input_price_per_1m ?? null}, input_price_per_1m),
         output_price_per_1m = COALESCE(${body.data.output_price_per_1m ?? null}, output_price_per_1m),
+        min_cost_per_call = COALESCE(${body.data.min_cost_per_call ?? null}, min_cost_per_call),
         enabled = COALESCE(${body.data.enabled ?? null}, enabled),
         updated_at = NOW()
       WHERE id = ${body.data.id}
     `;
+    invalidateCatalogCache();
     return jsonOk({ ok: true });
   } catch (err) {
     return handleApiError(err);

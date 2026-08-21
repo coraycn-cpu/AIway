@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
 import { emptyToNull, ensureListIndexes, listMeta, parseListQuery } from "@/lib/admin/list-query";
+import { invalidatePromptCache } from "@/lib/prompts";
 
 export const dynamic = "force-dynamic";
 
@@ -132,6 +133,7 @@ export async function POST(req: Request) {
       return rows[0];
     });
 
+    invalidatePromptCache();
     return jsonOk({ item: result }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

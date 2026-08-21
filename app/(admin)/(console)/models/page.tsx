@@ -18,6 +18,7 @@ type Model = {
   display_name: string;
   input_price_per_1m: string;
   output_price_per_1m: string;
+  min_cost_per_call?: string;
   enabled: boolean;
 };
 
@@ -26,6 +27,7 @@ const emptyForm = {
   display_name: "",
   input_price_per_1m: "0.3",
   output_price_per_1m: "2.5",
+  min_cost_per_call: "0",
 };
 
 function providerOf(modelId: string) {
@@ -90,6 +92,7 @@ export default function ModelsPage() {
         display_name: "DeepSeek V4 Flash",
         input_price_per_1m: "0.05",
         output_price_per_1m: "0.10",
+        min_cost_per_call: "0",
       });
     } else {
       setForm({
@@ -97,6 +100,7 @@ export default function ModelsPage() {
         display_name: "Gemini 2.5 Flash",
         input_price_per_1m: "0.30",
         output_price_per_1m: "2.50",
+        min_cost_per_call: "0",
       });
     }
   }
@@ -110,6 +114,7 @@ export default function ModelsPage() {
       display_name: m.display_name,
       input_price_per_1m: String(m.input_price_per_1m ?? ""),
       output_price_per_1m: String(m.output_price_per_1m ?? ""),
+      min_cost_per_call: String(m.min_cost_per_call ?? "0"),
     });
   }
 
@@ -121,7 +126,15 @@ export default function ModelsPage() {
 
     const inputPrice = Number(form.input_price_per_1m);
     const outputPrice = Number(form.output_price_per_1m);
-    if (!Number.isFinite(inputPrice) || inputPrice < 0 || !Number.isFinite(outputPrice) || outputPrice < 0) {
+    const minCost = Number(form.min_cost_per_call);
+    if (
+      !Number.isFinite(inputPrice) ||
+      inputPrice < 0 ||
+      !Number.isFinite(outputPrice) ||
+      outputPrice < 0 ||
+      !Number.isFinite(minCost) ||
+      minCost < 0
+    ) {
       setSaving(false);
       setError("价格须为非负数字");
       return;
@@ -137,6 +150,7 @@ export default function ModelsPage() {
             display_name: form.display_name,
             input_price_per_1m: inputPrice,
             output_price_per_1m: outputPrice,
+            min_cost_per_call: minCost,
           }),
         });
         const data = await res.json();
@@ -157,6 +171,7 @@ export default function ModelsPage() {
             display_name: form.display_name,
             input_price_per_1m: inputPrice,
             output_price_per_1m: outputPrice,
+            min_cost_per_call: minCost,
           }),
         });
         const data = await res.json();
@@ -293,6 +308,19 @@ export default function ModelsPage() {
               />
             </Field>
           </div>
+          <Field
+            label="最低每次计费（USD）"
+            hint="图片等低 token 调用的地板价；实际 cost = max(token 价, 此项)。文本模型可留 0。"
+          >
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              value={form.min_cost_per_call}
+              onChange={(e) => setForm({ ...form, min_cost_per_call: e.target.value })}
+              required
+            />
+          </Field>
           <div className="form-actions">
             <button type="submit" disabled={saving}>
               {saving ? "保存中…" : editingId ? "保存改价" : "保存模型"}
@@ -346,6 +374,7 @@ export default function ModelsPage() {
                         <th>显示名</th>
                         <th>输入价/1M</th>
                         <th>输出价/1M</th>
+                        <th>最低/次</th>
                         <th>启用</th>
                         <th>操作</th>
                       </tr>
@@ -360,6 +389,7 @@ export default function ModelsPage() {
                           <td>{m.display_name}</td>
                           <td>{m.input_price_per_1m}</td>
                           <td>{m.output_price_per_1m}</td>
+                          <td>{m.min_cost_per_call ?? "0"}</td>
                           <td>{m.enabled ? "是" : "否"}</td>
                           <td>
                             <div className="inline-form">

@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonOk } from "@/lib/api/errors";
+import { invalidateCatalogCache } from "@/lib/catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,7 @@ export async function POST() {
     }
 
     const rows = await sql`SELECT * FROM model_catalog ORDER BY model_id`;
+    invalidateCatalogCache();
     return jsonOk({
       upserted,
       items: rows,

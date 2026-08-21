@@ -27,6 +27,7 @@ export type Account = {
   id: string;
   site_id: string;
   balance: string;
+  held_balance?: string;
   month_quota: string | null;
   status: AccountStatus;
   created_at: Date;
@@ -77,6 +78,7 @@ export type ModelCatalog = {
   display_name: string;
   input_price_per_1m: string;
   output_price_per_1m: string;
+  min_cost_per_call?: string;
   enabled: boolean;
   created_at: Date;
   updated_at: Date;

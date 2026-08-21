@@ -18,6 +18,7 @@ type Account = {
   site_code: string;
   site_name: string;
   balance: string;
+  held_balance?: string;
   month_quota: string | null;
   status: string;
 };
@@ -165,6 +166,8 @@ export default function AccountsPage() {
               <tr>
                 <th>站点</th>
                 <th>余额</th>
+                <th>预扣</th>
+                <th>可用</th>
                 <th>月额度</th>
                 <th>状态</th>
                 <th />
@@ -172,14 +175,19 @@ export default function AccountsPage() {
             </thead>
             <tbody>
               {accounts.items.length === 0 ? (
-                <EmptyTableRow colSpan={5} text={accounts.loading ? "加载中…" : "暂无账号"} />
+                <EmptyTableRow colSpan={7} text={accounts.loading ? "加载中…" : "暂无账号"} />
               ) : (
-                accounts.items.map((a) => (
+                accounts.items.map((a) => {
+                  const bal = Number(a.balance);
+                  const held = Number(a.held_balance || 0);
+                  return (
                   <tr key={a.id}>
                     <td>
                       {a.site_code} / {a.site_name}
                     </td>
-                    <td>{Number(a.balance).toFixed(6)}</td>
+                    <td>{bal.toFixed(6)}</td>
+                    <td>{held.toFixed(6)}</td>
+                    <td>{Math.max(0, bal - held).toFixed(6)}</td>
                     <td>{a.month_quota ?? "-"}</td>
                     <td>{a.status}</td>
                     <td>
@@ -192,7 +200,8 @@ export default function AccountsPage() {
                       </button>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

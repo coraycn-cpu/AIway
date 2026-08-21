@@ -2,23 +2,28 @@
 
 import { useEffect, useState } from "react";
 import { Tip } from "../../tip";
-import { Panel } from "../../ui";
+import { Field, Panel } from "../../ui";
 
 type ModeSettings = {
   raw_mode_enabled: boolean;
   task_mode_enabled: boolean;
+  rate_limit_per_minute: number;
   tip?: string;
 };
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<ModeSettings | null>(null);
+  const [rateInput, setRateInput] = useState("120");
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function load() {
     const res = await fetch("/api/admin/settings");
     const data = await res.json();
-    if (res.ok) setSettings(data);
+    if (res.ok) {
+      setSettings(data);
+      setRateInput(String(data.rate_limit_per_minute ?? 120));
+    }
   }
 
   useEffect(() => {
@@ -40,7 +45,17 @@ export default function SettingsPage() {
       return;
     }
     setSettings(data);
+    setRateInput(String(data.rate_limit_per_minute ?? 120));
     setMsg(data.tip || "已保存");
+  }
+
+  async function saveRate() {
+    const n = Number(rateInput);
+    if (!Number.isFinite(n) || n < 1 || n > 6000 || !Number.isInteger(n)) {
+      setMsg("限流须为 1–6000 的整数（次/分钟）");
+      return;
+    }
+    await patch({ rate_limit_per_minute: n });
   }
 
   return (
@@ -94,6 +109,25 @@ export default function SettingsPage() {
                 </span>
               </span>
             </label>
+            <Field
+              label="站点限流（次/分钟）"
+              hint="每个 API Token 所属站点的软限流；超出返回 429 + Retry-After。默认 120。"
+            >
+              <div className="inline-form">
+                <input
+                  type="number"
+                  min={1}
+                  max={6000}
+                  step={1}
+                  value={rateInput}
+                  disabled={saving}
+                  onChange={(e) => setRateInput(e.target.value)}
+                />
+                <button type="button" disabled={saving} onClick={saveRate}>
+                  保存限流
+                </button>
+              </div>
+            </Field>
             {msg ? <p className="ok">{msg}</p> : null}
           </div>
         )}
