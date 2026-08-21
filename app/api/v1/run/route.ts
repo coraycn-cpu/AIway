@@ -2,7 +2,13 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { authenticateBearer } from "@/lib/auth";
 import { runGatewayModel, formatUpstreamError } from "@/lib/ai";
-import { assertCanSpend, calcCost, chargeAccount } from "@/lib/billing";
+import {
+  calcCost,
+  chargeAccount,
+  estimateHoldCost,
+  releaseHold,
+  reserveHold,
+} from "@/lib/billing";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
 import {
@@ -12,9 +18,17 @@ import {
 } from "@/lib/prompts";
 import { parseModelJson } from "@/lib/api/parseModelJson";
 import { getModeSettings, ModeForbiddenError } from "@/lib/settings";
+import { assertRateLimit } from "@/lib/rate-limit";
+import { resolveCatalogModel } from "@/lib/catalog";
+import {
+  findIdempotentResponse,
+  readIdempotencyKey,
+  saveIdempotentResponse,
+} from "@/lib/idempotency";
+import { isUnsafeImageUrlError } from "@/lib/net/safe-url";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const taskBodySchema = z.object({
   mode: z.literal("task").optional(),
@@ -51,14 +65,30 @@ export async function POST(req: Request) {
   let taskCode: string | undefined;
   let traceId: string | undefined;
   let runMode: "task" | "raw" = "task";
+  let holdAmount = 0;
 
   try {
     const auth = await authenticateBearer(req.headers.get("authorization"));
     siteId = auth.site.id;
     accountId = auth.account.id;
 
-    const json = await req.json().catch(() => null);
     const modeSettings = await getModeSettings();
+    assertRateLimit(auth.site.id, modeSettings.rate_limit_per_minute);
+
+    const idemKey = readIdempotencyKey(req);
+    if (idemKey) {
+      const hit = await findIdempotentResponse(auth.site.id, idemKey);
+      if (hit) {
+        return jsonOk(hit.response_body, {
+          headers: {
+            "Idempotent-Replay": "true",
+            "X-Request-Id": hit.request_id,
+          },
+        });
+      }
+    }
+
+    const json = await req.json().catch(() => null);
 
     const isRaw =
       json &&
@@ -81,18 +111,7 @@ export async function POST(req: Request) {
       if (!parsed.success) return jsonError(400, "400", "Invalid raw request body");
       traceId = parsed.data.trace_id;
 
-      await assertCanSpend(auth.account.id);
-
-      const sql = getSql();
-      const models = await sql<
-        { model_id: string; input_price_per_1m: string; output_price_per_1m: string; enabled: boolean }[]
-      >`
-        SELECT model_id, input_price_per_1m::text, output_price_per_1m::text, enabled
-        FROM model_catalog
-        WHERE model_id = ${parsed.data.model_id}
-        LIMIT 1
-      `;
-      const model = models[0];
+      const model = await resolveCatalogModel(parsed.data.model_id);
       if (!model || !model.enabled) {
         return jsonError(404, "404", "Model not found or disabled in catalog");
       }
@@ -104,6 +123,20 @@ export async function POST(req: Request) {
         imageInput.image_urls = parsed.data.image_urls;
       }
 
+      holdAmount = estimateHoldCost({
+        inputPricePer1m: Number(model.input_price_per_1m),
+        outputPricePer1m: Number(model.output_price_per_1m),
+        maxTokens: parsed.data.max_tokens ?? 2048,
+        imageCount: parsed.data.image_urls?.length || 0,
+        minCostPerCall: Number(model.min_cost_per_call || 0),
+      });
+      await reserveHold({
+        accountId: auth.account.id,
+        amount: holdAmount,
+        requestId,
+      });
+
+      const sql = getSql();
       let outputText = "";
       let inputTokens = 0;
       let outputTokens = 0;
@@ -111,7 +144,7 @@ export async function POST(req: Request) {
 
       try {
         const result = await runGatewayModel({
-          modelId: parsed.data.model_id,
+          modelId: model.model_id,
           system: parsed.data.system || "",
           prompt: parsed.data.prompt,
           temperature: parsed.data.temperature ?? 0.7,
@@ -125,6 +158,11 @@ export async function POST(req: Request) {
       } catch (err) {
         console.error("raw run upstream error", requestId, err);
         const message = formatUpstreamError(err);
+        await releaseHold({ accountId: auth.account.id, amount: holdAmount });
+        holdAmount = 0;
+        if (isUnsafeImageUrlError(err)) {
+          return jsonError(400, "400", message, { request_id: requestId });
+        }
         await sql`
           INSERT INTO usage_logs (
             request_id, site_id, account_id, task_code, model_id,
@@ -132,19 +170,22 @@ export async function POST(req: Request) {
             error_code, error_message, trace_id, latency_ms
           ) VALUES (
             ${requestId}, ${auth.site.id}, ${auth.account.id}, 'raw',
-            ${parsed.data.model_id}, 0, 0, 0, 0, 'error', '502', ${message},
+            ${model.model_id}, 0, 0, 0, 0, 'error', '502', ${message},
             ${traceId ?? null}, ${Date.now() - started}
           )
         `;
-        return jsonError(502, "502", `Upstream model failed: ${message}`, { request_id: requestId });
+        return jsonError(502, "502", `Upstream model failed: ${message}`, {
+          request_id: requestId,
+        });
       }
 
-      const cost = calcCost(
+      let cost = calcCost(
         inputTokens,
         outputTokens,
         Number(model.input_price_per_1m),
         Number(model.output_price_per_1m),
       );
+      cost = Math.max(cost, Number(model.min_cost_per_call || 0));
 
       const logRows = await sql<{ id: string }[]>`
         INSERT INTO usage_logs (
@@ -153,21 +194,27 @@ export async function POST(req: Request) {
           trace_id, latency_ms
         ) VALUES (
           ${requestId}, ${auth.site.id}, ${auth.account.id}, 'raw',
-          ${parsed.data.model_id}, ${inputTokens}, ${outputTokens}, ${totalTokens},
+          ${model.model_id}, ${inputTokens}, ${outputTokens}, ${totalTokens},
           ${cost}, 'success', ${traceId ?? null}, ${Date.now() - started}
         )
         RETURNING id
       `;
 
+      let balance = 0;
       try {
-        await chargeAccount({
+        const charged = await chargeAccount({
           accountId: auth.account.id,
           siteId: auth.site.id,
           amount: cost,
           usageLogId: logRows[0].id,
-          note: `raw:${parsed.data.model_id}`,
+          note: `raw:${model.model_id}`,
+          holdAmount,
         });
+        holdAmount = 0;
+        balance = charged.balance;
       } catch (err) {
+        await releaseHold({ accountId: auth.account.id, amount: holdAmount });
+        holdAmount = 0;
         await sql`
           UPDATE usage_logs
           SET status = 'rejected', error_code = '402', error_message = 'Insufficient balance after call'
@@ -176,27 +223,33 @@ export async function POST(req: Request) {
         throw err;
       }
 
-      const balanceRows = await sql<{ balance: string }[]>`
-        SELECT balance::text FROM accounts WHERE id = ${auth.account.id}
-      `;
       const jsonParsed = parseModelJson(outputText);
-
-      return jsonOk({
+      const body = {
         request_id: requestId,
-        mode: "raw",
+        mode: "raw" as const,
         output_text: jsonParsed.ok ? jsonParsed.jsonText : outputText,
         output_json: jsonParsed.ok ? jsonParsed.value : null,
-        output_format: jsonParsed.ok ? "json" : "text",
-        prompt_scope: "raw",
+        output_format: jsonParsed.ok ? ("json" as const) : ("text" as const),
+        prompt_scope: "raw" as const,
         usage: {
           input_tokens: inputTokens,
           output_tokens: outputTokens,
           total_tokens: totalTokens,
           cost,
-          model_id: parsed.data.model_id,
+          model_id: model.model_id,
         },
-        balance: Number(balanceRows[0]?.balance ?? 0),
-      });
+        balance,
+      };
+      if (idemKey) {
+        await saveIdempotentResponse({
+          siteId: auth.site.id,
+          idemKey,
+          requestId,
+          responseStatus: 200,
+          responseBody: body,
+        });
+      }
+      return jsonOk(body);
     }
 
     // ---- task mode ----
@@ -216,8 +269,6 @@ export async function POST(req: Request) {
     traceId = parsed.data.trace_id;
     runMode = "task";
 
-    await assertCanSpend(auth.account.id);
-
     const { task, prompt, schema, scope } = await loadTaskAndPrompt(
       parsed.data.task,
       auth.site.id,
@@ -226,20 +277,29 @@ export async function POST(req: Request) {
     const system = renderTemplate(prompt.system_template, parsed.data.input);
     const userPrompt = renderTemplate(prompt.user_template, parsed.data.input);
 
-    const sql = getSql();
-    const models = await sql<
-      { model_id: string; input_price_per_1m: string; output_price_per_1m: string; enabled: boolean }[]
-    >`
-      SELECT model_id, input_price_per_1m::text, output_price_per_1m::text, enabled
-      FROM model_catalog
-      WHERE model_id = ${task.default_model_id}
-      LIMIT 1
-    `;
-    const model = models[0];
+    const model = await resolveCatalogModel(task.default_model_id);
     if (!model || !model.enabled) {
       return jsonError(404, "404", "Model not found or disabled");
     }
 
+    holdAmount = estimateHoldCost({
+      inputPricePer1m: Number(model.input_price_per_1m),
+      outputPricePer1m: Number(model.output_price_per_1m),
+      maxTokens: task.max_tokens,
+      imageCount: Array.isArray(parsed.data.input.image_urls)
+        ? parsed.data.input.image_urls.length
+        : parsed.data.input.image_url
+          ? 1
+          : 0,
+      minCostPerCall: Number(model.min_cost_per_call || 0),
+    });
+    await reserveHold({
+      accountId: auth.account.id,
+      amount: holdAmount,
+      requestId,
+    });
+
+    const sql = getSql();
     let outputText = "";
     let inputTokens = 0;
     let outputTokens = 0;
@@ -261,6 +321,11 @@ export async function POST(req: Request) {
     } catch (err) {
       console.error("task run upstream error", requestId, err);
       const message = formatUpstreamError(err);
+      await releaseHold({ accountId: auth.account.id, amount: holdAmount });
+      holdAmount = 0;
+      if (isUnsafeImageUrlError(err)) {
+        return jsonError(400, "400", message, { request_id: requestId });
+      }
       await sql`
         INSERT INTO usage_logs (
           request_id, site_id, account_id, task_id, task_code, model_id,
@@ -272,15 +337,18 @@ export async function POST(req: Request) {
           ${traceId ?? null}, ${Date.now() - started}
         )
       `;
-      return jsonError(502, "502", `Upstream model failed: ${message}`, { request_id: requestId });
+      return jsonError(502, "502", `Upstream model failed: ${message}`, {
+        request_id: requestId,
+      });
     }
 
-    const cost = calcCost(
+    let cost = calcCost(
       inputTokens,
       outputTokens,
       Number(model.input_price_per_1m),
       Number(model.output_price_per_1m),
     );
+    cost = Math.max(cost, Number(model.min_cost_per_call || 0));
 
     const logRows = await sql<{ id: string }[]>`
       INSERT INTO usage_logs (
@@ -295,15 +363,21 @@ export async function POST(req: Request) {
       RETURNING id
     `;
 
+    let balance = 0;
     try {
-      await chargeAccount({
+      const charged = await chargeAccount({
         accountId: auth.account.id,
         siteId: auth.site.id,
         amount: cost,
         usageLogId: logRows[0].id,
         note: `task:${task.task_code}`,
+        holdAmount,
       });
+      holdAmount = 0;
+      balance = charged.balance;
     } catch (err) {
+      await releaseHold({ accountId: auth.account.id, amount: holdAmount });
+      holdAmount = 0;
       await sql`
         UPDATE usage_logs
         SET status = 'rejected', error_code = '402', error_message = 'Insufficient balance after call'
@@ -312,17 +386,13 @@ export async function POST(req: Request) {
       throw err;
     }
 
-    const balanceRows = await sql<{ balance: string }[]>`
-      SELECT balance::text FROM accounts WHERE id = ${auth.account.id}
-    `;
     const jsonParsed = parseModelJson(outputText);
-
-    return jsonOk({
+    const body = {
       request_id: requestId,
-      mode: "task",
+      mode: "task" as const,
       output_text: jsonParsed.ok ? jsonParsed.jsonText : outputText,
       output_json: jsonParsed.ok ? jsonParsed.value : null,
-      output_format: jsonParsed.ok ? "json" : "text",
+      output_format: jsonParsed.ok ? ("json" as const) : ("text" as const),
       prompt_scope: scope,
       usage: {
         input_tokens: inputTokens,
@@ -331,9 +401,22 @@ export async function POST(req: Request) {
         cost,
         model_id: task.default_model_id,
       },
-      balance: Number(balanceRows[0]?.balance ?? 0),
-    });
+      balance,
+    };
+    if (idemKey) {
+      await saveIdempotentResponse({
+        siteId: auth.site.id,
+        idemKey,
+        requestId,
+        responseStatus: 200,
+        responseBody: body,
+      });
+    }
+    return jsonOk(body);
   } catch (err) {
+    if (holdAmount > 0 && accountId) {
+      await releaseHold({ accountId, amount: holdAmount }).catch(() => undefined);
+    }
     if (siteId && accountId) {
       try {
         const sql = getSql();

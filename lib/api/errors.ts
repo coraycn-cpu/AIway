@@ -3,6 +3,7 @@ import { AuthError } from "@/lib/auth";
 import { BillingError } from "@/lib/billing";
 import { PromptError } from "@/lib/prompts";
 import { ModeForbiddenError } from "@/lib/settings";
+import { RateLimitError } from "@/lib/rate-limit";
 
 export function jsonOk<T>(data: T, init?: ResponseInit) {
   return NextResponse.json(data, init);
@@ -24,6 +25,15 @@ export function handleApiError(err: unknown) {
   }
   if (err instanceof ModeForbiddenError) {
     return jsonError(err.status, err.code, err.message);
+  }
+  if (err instanceof RateLimitError) {
+    return NextResponse.json(
+      { error: { code: err.code, message: err.message, retry_after: err.retryAfterSec } },
+      {
+        status: 429,
+        headers: { "Retry-After": String(err.retryAfterSec) },
+      },
+    );
   }
   console.error(err);
   const message = err instanceof Error ? err.message : "Internal server error";

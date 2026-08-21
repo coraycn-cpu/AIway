@@ -4,7 +4,6 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { getSql } from "@/lib/db";
 import type { Account, AdminUser, ApiToken, Site } from "@/lib/db/schema";
-import { ensureSettingsSchema } from "@/lib/settings";
 
 const SESSION_COOKIE = "aiway_admin_session";
 const SESSION_TTL = "7d";
@@ -101,7 +100,6 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
   const token = authHeader.slice("Bearer ".length).trim();
   if (!token) throw new AuthError("Missing token", 401);
 
-  await ensureSettingsSchema();
   const sql = getSql();
   const hash = hashApiToken(token);
   const rows = await sql<
@@ -162,7 +160,15 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
     throw new AuthError("Account or site disabled", 403);
   }
 
-  await sql`UPDATE api_tokens SET last_used_at = NOW() WHERE id = ${row.token_id}`;
+  // Debounce last_used_at writes (best-effort; skip if touched in last 5 minutes).
+  const lastUsed = row.token_last_used_at
+    ? new Date(row.token_last_used_at).getTime()
+    : 0;
+  if (!lastUsed || Date.now() - lastUsed > 5 * 60_000) {
+    void sql`
+      UPDATE api_tokens SET last_used_at = NOW() WHERE id = ${row.token_id}
+    `.catch(() => undefined);
+  }
 
   return {
     site: {

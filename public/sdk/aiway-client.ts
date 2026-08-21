@@ -9,6 +9,7 @@ export type RunInput = {
   task: string;
   input?: Record<string, unknown>;
   trace_id?: string;
+  idempotencyKey?: string;
 };
 
 export type RawRunInput = {
@@ -21,6 +22,7 @@ export type RawRunInput = {
   /** Optional extra fields (e.g. image_url) passed through for multimodal helpers */
   input?: Record<string, unknown>;
   trace_id?: string;
+  idempotencyKey?: string;
 };
 
 export type RunResult = {
@@ -133,15 +135,23 @@ function env() {
   return { base: base.replace(/\/$/, ""), token };
 }
 
-async function aiwayFetch(path: string, init: RequestInit = {}) {
+async function aiwayFetch(
+  path: string,
+  init: RequestInit = {},
+  opts?: { idempotencyKey?: string },
+) {
   const { base, token } = env();
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    ...(init.headers as Record<string, string> | undefined),
+  };
+  if (opts?.idempotencyKey) {
+    headers["Idempotency-Key"] = opts.idempotencyKey;
+  }
   const res = await fetch(`${base}${path}`, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(init.headers || {}),
-    },
+    headers,
     cache: "no-store",
   });
   const data = await res.json().catch(() => ({}));
@@ -150,15 +160,19 @@ async function aiwayFetch(path: string, init: RequestInit = {}) {
 }
 
 export async function runTask(payload: RunInput): Promise<RunResult> {
-  return aiwayFetch("/run", {
-    method: "POST",
-    body: JSON.stringify({
-      mode: "task",
-      task: payload.task,
-      input: payload.input ?? {},
-      trace_id: payload.trace_id,
-    }),
-  });
+  return aiwayFetch(
+    "/run",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "task",
+        task: payload.task,
+        input: payload.input ?? {},
+        trace_id: payload.trace_id,
+      }),
+    },
+    { idempotencyKey: payload.idempotencyKey },
+  );
 }
 
 /**
@@ -166,20 +180,24 @@ export async function runTask(payload: RunInput): Promise<RunResult> {
  * Requires admin: global raw_mode_enabled + site.raw_enabled.
  */
 export async function runRaw(payload: RawRunInput): Promise<RunResult> {
-  return aiwayFetch("/run", {
-    method: "POST",
-    body: JSON.stringify({
-      mode: "raw",
-      model_id: payload.model_id,
-      system: payload.system ?? "",
-      prompt: payload.prompt,
-      temperature: payload.temperature,
-      max_tokens: payload.max_tokens,
-      image_urls: payload.image_urls,
-      input: payload.input,
-      trace_id: payload.trace_id,
-    }),
-  });
+  return aiwayFetch(
+    "/run",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "raw",
+        model_id: payload.model_id,
+        system: payload.system ?? "",
+        prompt: payload.prompt,
+        temperature: payload.temperature,
+        max_tokens: payload.max_tokens,
+        image_urls: payload.image_urls,
+        input: payload.input,
+        trace_id: payload.trace_id,
+      }),
+    },
+    { idempotencyKey: payload.idempotencyKey },
+  );
 }
 
 /** Prefer output_json; otherwise parse output_text (handles ```json fences). */
@@ -261,6 +279,84 @@ export async function listUsage(query = "page=1&page_size=20") {
 
 export async function getUsage(requestId: string) {
   return aiwayFetch(`/usage/${encodeURIComponent(requestId)}`);
+}
+
+export type ModelsListResult = {
+  object: "list";
+  data: Array<{
+    id: string;
+    object: "model";
+    owned_by: string;
+    created: number;
+  }>;
+};
+
+export async function listModels(): Promise<ModelsListResult> {
+  return aiwayFetch("/models");
+}
+
+export type ChatCompletionsInput = {
+  model: string;
+  messages: Array<{
+    role: string;
+    content:
+      | string
+      | Array<
+          | { type: "text"; text: string }
+          | { type: "image_url"; image_url: { url: string } }
+        >;
+  }>;
+  temperature?: number;
+  max_tokens?: number;
+  stream?: boolean;
+  idempotencyKey?: string;
+};
+
+export async function chatCompletions(payload: ChatCompletionsInput) {
+  const { idempotencyKey, ...body } = payload;
+  return aiwayFetch(
+    "/chat/completions",
+    { method: "POST", body: JSON.stringify(body) },
+    { idempotencyKey },
+  );
+}
+
+export type ImagesGenerationsInput = {
+  model: string;
+  prompt: string;
+  n?: number;
+  response_format?: "b64_json" | "url";
+  idempotencyKey?: string;
+};
+
+export async function imagesGenerations(payload: ImagesGenerationsInput) {
+  const { idempotencyKey, ...body } = payload;
+  return aiwayFetch(
+    "/images/generations",
+    { method: "POST", body: JSON.stringify(body) },
+    { idempotencyKey },
+  );
+}
+
+export type ImagesEditsInput = {
+  model: string;
+  prompt: string;
+  image?: string;
+  images?: string[];
+  image_url?: string;
+  image_urls?: string[];
+  n?: number;
+  response_format?: "b64_json" | "url";
+  idempotencyKey?: string;
+};
+
+export async function imagesEdits(payload: ImagesEditsInput) {
+  const { idempotencyKey, ...body } = payload;
+  return aiwayFetch(
+    "/images/edits",
+    { method: "POST", body: JSON.stringify(body) },
+    { idempotencyKey },
+  );
 }
 
 /** Convenience: apparel image enrich */

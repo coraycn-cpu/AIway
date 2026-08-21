@@ -1,15 +1,30 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import { streamText } from "ai";
+import { gateway } from "@ai-sdk/gateway";
 import { authenticateBearer } from "@/lib/auth";
 import { runGatewayModel, formatUpstreamError } from "@/lib/ai";
-import { assertCanSpend, calcCost, chargeAccount } from "@/lib/billing";
+import {
+  calcCost,
+  chargeAccount,
+  estimateHoldCost,
+  releaseHold,
+  reserveHold,
+} from "@/lib/billing";
 import { getSql } from "@/lib/db";
 import { getModeSettings, ModeForbiddenError } from "@/lib/settings";
 import { handleApiError } from "@/lib/api/errors";
 import { openaiError, resolveCatalogModel } from "@/lib/openai-compat";
+import { assertRateLimit, RateLimitError } from "@/lib/rate-limit";
+import {
+  findIdempotentResponse,
+  readIdempotencyKey,
+  saveIdempotentResponse,
+} from "@/lib/idempotency";
+import { isUnsafeImageUrlError } from "@/lib/net/safe-url";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 type ChatMessage = {
   role?: string;
@@ -74,16 +89,20 @@ function parseMessages(messages: ChatMessage[]) {
 
 /**
  * OpenAI-compatible chat completions, billed as AIway raw mode.
- * Used by business-site "OpenAI 兼容视觉接口" forms that POST to
- * {base}/chat/completions.
+ * Supports stream:true (SSE). Images force non-stream path.
  */
 export async function POST(req: Request) {
   const started = Date.now();
   const requestId = randomUUID();
+  let holdAmount = 0;
+  let accountId: string | undefined;
 
   try {
     const auth = await authenticateBearer(req.headers.get("authorization"));
+    accountId = auth.account.id;
     const modes = await getModeSettings();
+    assertRateLimit(auth.site.id, modes.rate_limit_per_minute);
+
     if (!modes.raw_mode_enabled) {
       throw new ModeForbiddenError("Raw mode is disabled by admin (global switch)");
     }
@@ -93,11 +112,25 @@ export async function POST(req: Request) {
       );
     }
 
+    const idemKey = readIdempotencyKey(req);
+    if (idemKey) {
+      const hit = await findIdempotentResponse(auth.site.id, idemKey);
+      if (hit) {
+        return NextResponse.json(hit.response_body, {
+          headers: {
+            "Idempotent-Replay": "true",
+            "X-Request-Id": hit.request_id,
+          },
+        });
+      }
+    }
+
     const json = (await req.json().catch(() => null)) as {
       model?: string;
       messages?: ChatMessage[];
       temperature?: number;
       max_tokens?: number;
+      stream?: boolean;
     } | null;
 
     const modelName = String(json?.model || "").trim();
@@ -119,9 +152,141 @@ export async function POST(req: Request) {
       );
     }
 
-    await assertCanSpend(auth.account.id);
+    const maxTokens =
+      typeof json?.max_tokens === "number" && json.max_tokens > 0
+        ? Math.min(json.max_tokens, 16000)
+        : 2048;
+    const temperature =
+      typeof json?.temperature === "number" ? json.temperature : 0.7;
+    const wantStream = Boolean(json?.stream) && parsed.image_urls.length === 0;
+
+    holdAmount = estimateHoldCost({
+      inputPricePer1m: Number(model.input_price_per_1m),
+      outputPricePer1m: Number(model.output_price_per_1m),
+      maxTokens,
+      imageCount: parsed.image_urls.length,
+      minCostPerCall: Number(model.min_cost_per_call || 0),
+    });
+    await reserveHold({
+      accountId: auth.account.id,
+      amount: holdAmount,
+      requestId,
+    });
 
     const sql = getSql();
+
+    // Streaming text-only path
+    if (wantStream) {
+      try {
+        const result = streamText({
+          model: gateway(model.model_id),
+          system: parsed.system || undefined,
+          prompt: parsed.prompt,
+          temperature,
+          maxOutputTokens: maxTokens,
+        });
+
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            const send = (obj: unknown) => {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify(obj)}\n\n`),
+              );
+            };
+            try {
+              for await (const delta of result.textStream) {
+                send({
+                  id: `chatcmpl-${requestId}`,
+                  object: "chat.completion.chunk",
+                  created: Math.floor(Date.now() / 1000),
+                  model: model.model_id,
+                  choices: [
+                    {
+                      index: 0,
+                      delta: { content: delta },
+                      finish_reason: null,
+                    },
+                  ],
+                });
+              }
+              const usage = await result.usage;
+              const inputTokens = usage?.inputTokens ?? 0;
+              const outputTokens = usage?.outputTokens ?? 0;
+              const totalTokens = usage?.totalTokens ?? inputTokens + outputTokens;
+              let cost = calcCost(
+                inputTokens,
+                outputTokens,
+                Number(model.input_price_per_1m),
+                Number(model.output_price_per_1m),
+              );
+              cost = Math.max(cost, Number(model.min_cost_per_call || 0));
+
+              const logRows = await sql<{ id: string }[]>`
+                INSERT INTO usage_logs (
+                  request_id, site_id, account_id, task_code, model_id,
+                  input_tokens, output_tokens, total_tokens, cost, status, latency_ms
+                ) VALUES (
+                  ${requestId}, ${auth.site.id}, ${auth.account.id}, 'raw',
+                  ${model.model_id}, ${inputTokens}, ${outputTokens}, ${totalTokens},
+                  ${cost}, 'success', ${Date.now() - started}
+                )
+                RETURNING id
+              `;
+              await chargeAccount({
+                accountId: auth.account.id,
+                siteId: auth.site.id,
+                amount: cost,
+                usageLogId: logRows[0].id,
+                note: `openai-compat-stream:${model.model_id}`,
+                holdAmount,
+              });
+              holdAmount = 0;
+
+              send({
+                id: `chatcmpl-${requestId}`,
+                object: "chat.completion.chunk",
+                created: Math.floor(Date.now() / 1000),
+                model: model.model_id,
+                choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+                usage: {
+                  prompt_tokens: inputTokens,
+                  completion_tokens: outputTokens,
+                  total_tokens: totalTokens,
+                },
+              });
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            } catch (err) {
+              if (holdAmount > 0) {
+                await releaseHold({
+                  accountId: auth.account.id,
+                  amount: holdAmount,
+                }).catch(() => undefined);
+                holdAmount = 0;
+              }
+              controller.error(err);
+            }
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "X-Request-Id": requestId,
+          },
+        });
+      } catch (err) {
+        if (holdAmount > 0) {
+          await releaseHold({ accountId: auth.account.id, amount: holdAmount });
+          holdAmount = 0;
+        }
+        throw err;
+      }
+    }
+
     let outputText = "";
     let inputTokens = 0;
     let outputTokens = 0;
@@ -132,12 +297,8 @@ export async function POST(req: Request) {
         modelId: model.model_id,
         system: parsed.system,
         prompt: parsed.prompt,
-        temperature:
-          typeof json?.temperature === "number" ? json.temperature : 0.7,
-        maxTokens:
-          typeof json?.max_tokens === "number" && json.max_tokens > 0
-            ? Math.min(json.max_tokens, 16000)
-            : 2048,
+        temperature,
+        maxTokens,
         input: { image_urls: parsed.image_urls },
       });
       outputText = result.text;
@@ -147,6 +308,11 @@ export async function POST(req: Request) {
     } catch (err) {
       console.error("vision completions upstream error", requestId, err);
       const message = formatUpstreamError(err);
+      await releaseHold({ accountId: auth.account.id, amount: holdAmount });
+      holdAmount = 0;
+      if (isUnsafeImageUrlError(err)) {
+        return openaiError(400, message, "400");
+      }
       await sql`
         INSERT INTO usage_logs (
           request_id, site_id, account_id, task_code, model_id,
@@ -161,12 +327,13 @@ export async function POST(req: Request) {
       return openaiError(502, `Upstream model failed: ${message}`, "502");
     }
 
-    const cost = calcCost(
+    let cost = calcCost(
       inputTokens,
       outputTokens,
       Number(model.input_price_per_1m),
       Number(model.output_price_per_1m),
     );
+    cost = Math.max(cost, Number(model.min_cost_per_call || 0));
 
     const logRows = await sql<{ id: string }[]>`
       INSERT INTO usage_logs (
@@ -187,8 +354,12 @@ export async function POST(req: Request) {
         amount: cost,
         usageLogId: logRows[0].id,
         note: `openai-compat:${model.model_id}`,
+        holdAmount,
       });
+      holdAmount = 0;
     } catch (err) {
+      await releaseHold({ accountId: auth.account.id, amount: holdAmount });
+      holdAmount = 0;
       await sql`
         UPDATE usage_logs
         SET status = 'rejected', error_code = '402', error_message = 'Insufficient balance after call'
@@ -197,7 +368,7 @@ export async function POST(req: Request) {
       throw err;
     }
 
-    return NextResponse.json({
+    const body = {
       id: `chatcmpl-${requestId}`,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
@@ -215,8 +386,35 @@ export async function POST(req: Request) {
         total_tokens: totalTokens,
       },
       request_id: requestId,
-    });
+    };
+
+    if (idemKey) {
+      await saveIdempotentResponse({
+        siteId: auth.site.id,
+        idemKey,
+        requestId,
+        responseStatus: 200,
+        responseBody: body,
+      });
+    }
+
+    return NextResponse.json(body);
   } catch (err) {
+    if (holdAmount > 0 && accountId) {
+      await releaseHold({ accountId, amount: holdAmount }).catch(() => undefined);
+    }
+    if (err instanceof RateLimitError) {
+      return NextResponse.json(
+        {
+          error: {
+            message: err.message,
+            type: "rate_limit_error",
+            code: "429",
+          },
+        },
+        { status: 429, headers: { "Retry-After": String(err.retryAfterSec) } },
+      );
+    }
     if (err instanceof ModeForbiddenError) {
       return openaiError(err.status, err.message, err.code);
     }

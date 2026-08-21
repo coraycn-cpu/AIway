@@ -14,17 +14,19 @@ Token 仅服务端。SDK：`https://www.ryfs.cn/sdk/aiway-client.ts` → `lib/ai
 | 方法 | 路径 | SDK |
 |------|------|-----|
 | POST | `/run` | `runTask` `runTaskJson` `runRaw` `runRawJson` |
-| POST | `/chat/completions` | 无（OpenAI 兼容视觉理解） |
-| POST | `/images/edits` | 无（OpenAI 兼容图片编辑/版式翻译） |
-| POST | `/images/generations` | 无（OpenAI 兼容文生图） |
+| POST | `/chat/completions` | `chatCompletions`（OpenAI 兼容；支持 `stream`） |
+| POST | `/images/edits` | `imagesEdits` |
+| POST | `/images/generations` | `imagesGenerations` |
+| GET | `/models` | `listModels` |
 | GET | `/account` | `getAccount` |
 | GET | `/usage` | `listUsage` |
 | GET | `/usage/{request_id}` | `getUsage` |
 
 先 `GET /account`：`status==="active"` 且 `balance>0`。  
 JSON 输出：用 `output_json` 或 `runTaskJson`/`runRawJson`，禁止只 `JSON.parse(output_text)`。  
-图片：`https://` 或 `data:image/...;base64,`（≤3.5MB），最多 6。别名：`image_url` `image_urls` `images` `fabric_image_url` `product_image_url`。  
-超时：文本 60s，带图/生图 90–120s。
+图片：公网 `https://` 或 `data:image/...;base64,`（≤3.5MB），最多 6。别名：`image_url` `image_urls` `images` `fabric_image_url` `product_image_url`。内网/localhost URL 会被拒绝（SSRF 防护）。  
+可选头：`Idempotency-Key`（同 key 成功响应可重放；流式请求不缓存）。  
+超时：文本 60s，带图/生图 90–120s。默认站点限流约 120 次/分钟（429 + `Retry-After`）。
 
 ---
 
@@ -127,6 +129,19 @@ JSON 输出：用 `output_json` 或 `runTaskJson`/`runRawJson`，禁止只 `JSON
 
 ---
 
+## GET /models
+
+OpenAI 兼容模型列表（目录已启用项）。需有效 Bearer。
+
+```json
+{
+  "object": "list",
+  "data": [{ "id": "google/gemini-2.5-flash", "object": "model", "owned_by": "google", "created": 0 }]
+}
+```
+
+---
+
 ## POST /chat/completions
 
 OpenAI 兼容。计费同 Raw（需 `can_use_raw`）。
@@ -147,9 +162,12 @@ OpenAI 兼容。计费同 Raw（需 `can_use_raw`）。
     }
   ],
   "temperature": 0.7,
-  "max_tokens": 2048
+  "max_tokens": 2048,
+  "stream": false
 }
 ```
+
+纯文本可 `stream:true`（SSE `text/event-stream`，末尾 `data: [DONE]`）。带图强制非流式。
 
 ```json
 {
@@ -197,7 +215,7 @@ JSON：
 }
 ```
 
-`image` / `images` / `image_url` / `image_urls`：https URL 或 `data:image`；单图 ≤8MB。
+`image` / `images` / `image_url` / `image_urls`：公网 https URL 或 `data:image`；单图 ≤8MB。私网/localhost URL → 400。
 
 ```json
 {
@@ -262,6 +280,12 @@ Query：`from` `to`（ISO）`page` `page_size`（默认 20，最大 100）`task`
 
 ---
 
+## 计费预扣（hold）
+
+上游调用前会按模型单价与 `max_tokens`/图片数预扣可用余额（`held_balance`）。失败释放；成功按实际 cost 结算并释放预扣。并发超额会更早返回 402。业务站无需改请求体。
+
+---
+
 ## 错误
 
 `/run` `/account` `/usage`：
@@ -272,12 +296,12 @@ Query：`from` `to`（ISO）`page` `page_size`（默认 20，最大 100）`task`
 
 | HTTP | |
 |------|--|
-| 400 | body / 缺字段 |
+| 400 | body / 缺字段 / 非法图片 URL |
 | 401 | Token |
-| 402 | 余额或月额度 |
+| 402 | 余额或月额度（含预扣不足） |
 | 403 | 站点停用或 Task/Raw 未开 |
 | 404 | task / model / 记录 |
-| 429 | 限流 |
+| 429 | 限流；响应头 `Retry-After`（秒） |
 | 502 | 上游失败；`message` 含 Gateway 原文；不扣成功费 |
 
-SDK：`AiwayError`（`status` `code` `body`）。
+SDK：`AiwayError`（`status` `code` `body`）。可选 `idempotencyKey` 传入各写接口。

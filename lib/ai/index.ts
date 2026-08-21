@@ -1,5 +1,6 @@
 import { generateImage, generateText, type UserContent, APICallError } from "ai";
 import { gateway, GatewayError } from "@ai-sdk/gateway";
+import { assertSafePublicImageUrl } from "@/lib/net/safe-url";
 
 const MAX_IMAGES = 6;
 const MAX_DATA_URI_CHARS = 3_500_000;
@@ -116,6 +117,39 @@ export function formatUpstreamError(error: unknown): string {
   return (unique.join(" | ") || "Upstream model failed").slice(0, 800);
 }
 
+function isRetryableUpstream(error: unknown): boolean {
+  if (GatewayError.isInstance(error)) {
+    return error.statusCode === 429 || error.statusCode >= 500;
+  }
+  if (APICallError.isInstance(error)) {
+    return error.statusCode === 429 || (error.statusCode != null && error.statusCode >= 500);
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return msg.includes("timeout") || msg.includes("econnreset") || msg.includes("503");
+  }
+  return false;
+}
+
+export async function withUpstreamRetry<T>(
+  fn: () => Promise<T>,
+  opts?: { retries?: number; baseDelayMs?: number },
+): Promise<T> {
+  const retries = opts?.retries ?? 2;
+  const baseDelayMs = opts?.baseDelayMs ?? 400;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= retries || !isRetryableUpstream(err)) throw err;
+      await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 export async function runGatewayModel(opts: {
   modelId: string;
   system: string;
@@ -129,44 +163,49 @@ export async function runGatewayModel(opts: {
   }
 
   const imageUrls = opts.input ? collectImageUrls(opts.input) : [];
+  for (const ref of imageUrls) {
+    if (isHttpUrl(ref)) await assertSafePublicImageUrl(ref);
+  }
 
-  if (imageUrls.length === 0) {
+  return withUpstreamRetry(async () => {
+    if (imageUrls.length === 0) {
+      const result = await generateText({
+        model: gateway(opts.modelId),
+        system: opts.system || undefined,
+        prompt: opts.prompt,
+        temperature: opts.temperature,
+        maxOutputTokens: opts.maxTokens,
+      });
+      return {
+        text: result.text,
+        inputTokens: result.usage?.inputTokens ?? 0,
+        outputTokens: result.usage?.outputTokens ?? 0,
+        totalTokens: result.usage?.totalTokens ?? 0,
+        imageCount: 0,
+      };
+    }
+
+    const content: UserContent = [
+      { type: "text", text: opts.prompt },
+      ...imageUrls.map(toImagePart),
+    ];
+
     const result = await generateText({
       model: gateway(opts.modelId),
       system: opts.system || undefined,
-      prompt: opts.prompt,
+      messages: [{ role: "user", content }],
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens,
     });
+
     return {
       text: result.text,
       inputTokens: result.usage?.inputTokens ?? 0,
       outputTokens: result.usage?.outputTokens ?? 0,
       totalTokens: result.usage?.totalTokens ?? 0,
-      imageCount: 0,
+      imageCount: imageUrls.length,
     };
-  }
-
-  const content: UserContent = [
-    { type: "text", text: opts.prompt },
-    ...imageUrls.map(toImagePart),
-  ];
-
-  const result = await generateText({
-    model: gateway(opts.modelId),
-    system: opts.system || undefined,
-    messages: [{ role: "user", content }],
-    temperature: opts.temperature,
-    maxOutputTokens: opts.maxTokens,
   });
-
-  return {
-    text: result.text,
-    inputTokens: result.usage?.inputTokens ?? 0,
-    outputTokens: result.usage?.outputTokens ?? 0,
-    totalTokens: result.usage?.totalTokens ?? 0,
-    imageCount: imageUrls.length,
-  };
 }
 
 export type ImageEditInput = {
@@ -221,58 +260,60 @@ export async function runGatewayImageEdit(opts: {
     }
   }
 
-  if (isImageOnlyModel(opts.modelId) && !isMultimodalImageLlm(opts.modelId)) {
-    const result = await generateImage({
-      model: gateway.image(opts.modelId),
-      prompt:
-        opts.images.length > 0
-          ? {
-              text: prompt,
-              images: opts.images.map((img) => img.data),
-            }
-          : prompt,
-      n,
+  return withUpstreamRetry(async () => {
+    if (isImageOnlyModel(opts.modelId) && !isMultimodalImageLlm(opts.modelId)) {
+      const result = await generateImage({
+        model: gateway.image(opts.modelId),
+        prompt:
+          opts.images.length > 0
+            ? {
+                text: prompt,
+                images: opts.images.map((img) => img.data),
+              }
+            : prompt,
+        n,
+      });
+      return {
+        images: result.images.map((img) => fileToBase64(img)),
+        text: "",
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      };
+    }
+
+    const content: UserContent = [
+      { type: "text", text: prompt },
+      ...opts.images.map((img) => ({
+        type: "image" as const,
+        image: img.data,
+        mediaType: img.mediaType,
+      })),
+    ];
+
+    const result = await generateText({
+      model: gateway(opts.modelId),
+      messages: [{ role: "user", content }],
+      providerOptions: {
+        google: { responseModalities: ["TEXT", "IMAGE"] },
+      },
     });
-    return {
-      images: result.images.map((img) => fileToBase64(img)),
-      text: "",
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
-  }
 
-  const content: UserContent = [
-    { type: "text", text: prompt },
-    ...opts.images.map((img) => ({
-      type: "image" as const,
-      image: img.data,
-      mediaType: img.mediaType,
-    })),
-  ];
-
-  const result = await generateText({
-    model: gateway(opts.modelId),
-    messages: [{ role: "user", content }],
-    providerOptions: {
-      google: { responseModalities: ["TEXT", "IMAGE"] },
-    },
-  });
-
-  const files = (result.files || []).filter((f) =>
-    (f.mediaType || "").startsWith("image/"),
-  );
-  if (files.length === 0) {
-    throw new Error(
-      "Upstream returned no image. Use an image model such as google/gemini-3.1-flash-lite-image",
+    const files = (result.files || []).filter((f) =>
+      (f.mediaType || "").startsWith("image/"),
     );
-  }
+    if (files.length === 0) {
+      throw new Error(
+        "Upstream returned no image. Use an image model such as google/gemini-3.1-flash-lite-image",
+      );
+    }
 
-  return {
-    images: files.slice(0, n).map((f) => fileToBase64(f)),
-    text: result.text || "",
-    inputTokens: result.usage?.inputTokens ?? 0,
-    outputTokens: result.usage?.outputTokens ?? 0,
-    totalTokens: result.usage?.totalTokens ?? 0,
-  };
+    return {
+      images: files.slice(0, n).map((f) => fileToBase64(f)),
+      text: result.text || "",
+      inputTokens: result.usage?.inputTokens ?? 0,
+      outputTokens: result.usage?.outputTokens ?? 0,
+      totalTokens: result.usage?.totalTokens ?? 0,
+    };
+  });
 }
