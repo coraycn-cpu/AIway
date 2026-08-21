@@ -119,6 +119,7 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
       site_updated_at: Date;
       account_id: string;
       balance: string;
+      held_balance: string;
       month_quota: string | null;
       account_status: Account["status"];
       account_created_at: Date;
@@ -141,6 +142,7 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
       s.updated_at AS site_updated_at,
       a.id AS account_id,
       a.balance::text AS balance,
+      COALESCE(a.held_balance, 0)::text AS held_balance,
       a.month_quota::text AS month_quota,
       a.status AS account_status,
       a.created_at AS account_created_at,
@@ -184,6 +186,7 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
       id: row.account_id,
       site_id: row.site_id,
       balance: row.balance,
+      held_balance: row.held_balance,
       month_quota: row.month_quota,
       status: row.account_status,
       created_at: row.account_created_at,

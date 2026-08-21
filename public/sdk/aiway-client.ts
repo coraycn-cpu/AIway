@@ -100,6 +100,10 @@ export type AccountResult = {
   site_name: string;
   status: string;
   balance: number;
+  /** Funds reserved for in-flight calls */
+  held_balance?: number;
+  /** Spendable = balance - held_balance */
+  available?: number;
   month_quota: number | null;
   month_used: number;
   month_remaining: number | null;

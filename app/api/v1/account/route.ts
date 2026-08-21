@@ -10,6 +10,8 @@ export async function GET(req: Request) {
     const auth = await authenticateBearer(req.headers.get("authorization"));
     const modes = await getModeSettings();
     const balance = Number(auth.account.balance);
+    const heldBalance = Number(auth.account.held_balance || 0);
+    const available = Math.max(0, balance - heldBalance);
     const monthQuota = auth.account.month_quota != null ? Number(auth.account.month_quota) : null;
     const monthUsed = await getMonthUsed(auth.account.id);
     const monthRemaining = monthQuota == null ? null : Math.max(0, monthQuota - monthUsed);
@@ -19,6 +21,8 @@ export async function GET(req: Request) {
       site_name: auth.site.name,
       status: auth.account.status,
       balance,
+      held_balance: heldBalance,
+      available,
       month_quota: monthQuota,
       month_used: monthUsed,
       month_remaining: monthRemaining,

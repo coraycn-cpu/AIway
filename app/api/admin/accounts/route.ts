@@ -28,7 +28,9 @@ export async function GET(req: Request) {
         )
     `;
     const rowsPromise = sql`
-      SELECT a.id, a.site_id, a.balance::text AS balance, a.month_quota::text AS month_quota,
+      SELECT a.id, a.site_id, a.balance::text AS balance,
+             COALESCE(a.held_balance, 0)::text AS held_balance,
+             a.month_quota::text AS month_quota,
              a.status, a.created_at, a.updated_at, s.code AS site_code, s.name AS site_name
       FROM accounts a
       JOIN sites s ON s.id = a.site_id

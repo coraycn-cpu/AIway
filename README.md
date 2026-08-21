@@ -42,6 +42,10 @@ npm run db:migrate
 1. `supabase/migrations/001_init.sql`
 2. `supabase/migrations/002_task_input_schema.sql`
 3. `supabase/migrations/003_model_catalog_expand.sql`
+4. `supabase/migrations/004_image_models.sql`
+5. `supabase/migrations/004_raw_mode_settings.sql`
+6. `supabase/migrations/005_list_indexes.sql`
+7. `supabase/migrations/006_relay_hardening.sql`（预扣余额 / 幂等键 / 图模最低价 / 限流设置）
 
 会创建全部表，并写入管理员、默认模型、示例任务 `ping`。
 

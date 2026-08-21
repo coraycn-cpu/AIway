@@ -22,7 +22,7 @@ Token 仅服务端。SDK：`https://www.ryfs.cn/sdk/aiway-client.ts` → `lib/ai
 | GET | `/usage` | `listUsage` |
 | GET | `/usage/{request_id}` | `getUsage` |
 
-先 `GET /account`：`status==="active"` 且 `balance>0`。  
+先 `GET /account`：`status==="active"` 且 `available>0`（无 `available` 字段时用 `balance>0`）。  
 JSON 输出：用 `output_json` 或 `runTaskJson`/`runRawJson`，禁止只 `JSON.parse(output_text)`。  
 图片：公网 `https://` 或 `data:image/...;base64,`（≤3.5MB），最多 6。别名：`image_url` `image_urls` `images` `fabric_image_url` `product_image_url`。内网/localhost URL 会被拒绝（SSRF 防护）。  
 可选头：`Idempotency-Key`（同 key 成功响应可重放；流式请求不缓存）。  
@@ -246,6 +246,8 @@ JSON：
   "site_name": "",
   "status": "active",
   "balance": 0,
+  "held_balance": 0,
+  "available": 0,
   "month_quota": null,
   "month_used": 0,
   "month_remaining": null,
@@ -259,7 +261,7 @@ JSON：
 }
 ```
 
-`can_use_raw = raw_mode_enabled && site_raw_enabled`。`status!=="active"` 或 `balance<=0` 不要调 `/run`。
+`available = balance - held_balance`。`can_use_raw = raw_mode_enabled && site_raw_enabled`。`status!=="active"` 或 `available<=0` 不要调 `/run`。
 
 ---
 
