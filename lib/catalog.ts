@@ -1,5 +1,6 @@
 import { getSql } from "@/lib/db";
 import { cacheDeletePrefix, cacheGetOrSet } from "@/lib/cache";
+import { ensureRelayHardeningSchema } from "@/lib/db/ensure-relay-hardening";
 
 export type CatalogModel = {
   model_id: string;
@@ -17,6 +18,7 @@ export function invalidateCatalogCache() {
 }
 
 export async function listEnabledCatalogModels(): Promise<CatalogModel[]> {
+  await ensureRelayHardeningSchema();
   return cacheGetOrSet("catalog:enabled", CATALOG_TTL_MS, async () => {
     const sql = getSql();
     const rows = await sql<CatalogModel[]>`

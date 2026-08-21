@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
+import { ensureRelayHardeningSchema } from "@/lib/db/ensure-relay-hardening";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
 import { emptyToNull, ensureListIndexes, listMeta, parseListQuery } from "@/lib/admin/list-query";
 
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     await requireAdmin();
+    await ensureRelayHardeningSchema();
     await ensureListIndexes();
     const url = new URL(req.url);
     const { page, pageSize, offset, q, status } = parseListQuery(url, { pageSize: 20 });

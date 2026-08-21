@@ -1,4 +1,5 @@
 import { getSql } from "@/lib/db";
+import { ensureRelayHardeningSchema } from "@/lib/db/ensure-relay-hardening";
 
 export type IdempotentHit = {
   request_id: string;
@@ -10,6 +11,7 @@ export async function findIdempotentResponse(
   siteId: string,
   idemKey: string,
 ): Promise<IdempotentHit | null> {
+  await ensureRelayHardeningSchema();
   const key = idemKey.trim().slice(0, 200);
   if (!key) return null;
   const sql = getSql();
