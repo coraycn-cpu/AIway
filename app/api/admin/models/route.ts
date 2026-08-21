@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
 import { emptyToNull, ensureListIndexes, listMeta, parseListQuery } from "@/lib/admin/list-query";
+import { invalidateCatalogCache } from "@/lib/catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,7 @@ export async function POST(req: Request) {
         updated_at = NOW()
       RETURNING *
     `;
+    invalidateCatalogCache();
     return jsonOk({ item: rows[0] });
   } catch (err) {
     return handleApiError(err);
@@ -118,6 +120,7 @@ export async function PATCH(req: Request) {
         updated_at = NOW()
       WHERE id = ${body.data.id}
     `;
+    invalidateCatalogCache();
     return jsonOk({ ok: true });
   } catch (err) {
     return handleApiError(err);

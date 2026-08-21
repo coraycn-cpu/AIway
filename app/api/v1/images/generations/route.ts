@@ -2,16 +2,71 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { authenticateBearer } from "@/lib/auth";
 import { runGatewayImageEdit, formatUpstreamError } from "@/lib/ai";
-import { assertCanSpend, calcCost, chargeAccount } from "@/lib/billing";
+import {
+  calcCost,
+  chargeAccount,
+  estimateHoldCost,
+  releaseHold,
+  reserveHold,
+} from "@/lib/billing";
 import { getSql } from "@/lib/db";
 import { getModeSettings, ModeForbiddenError } from "@/lib/settings";
 import { handleApiError } from "@/lib/api/errors";
 import { openaiError, resolveCatalogModel } from "@/lib/openai-compat";
+import { assertRateLimit, RateLimitError } from "@/lib/rate-limit";
+import {
+  findIdempotentResponse,
+  readIdempotencyKey,
+  saveIdempotentResponse,
+} from "@/lib/idempotency";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const MIN_PER_IMAGE_USD = 0.03;
+function mapOpenAiError(err: unknown) {
+  if (err instanceof ModeForbiddenError) {
+    return openaiError(err.status, err.message, err.code);
+  }
+  if (err instanceof RateLimitError) {
+    return NextResponse.json(
+      {
+        error: {
+          message: err.message,
+          type: "api_error",
+          code: "429",
+        },
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(err.retryAfterSec) },
+      },
+    );
+  }
+  const mapped = handleApiError(err);
+  const retryAfter = mapped.headers.get("Retry-After");
+  return mapped.json().then((body) => {
+    const message =
+      body && typeof body === "object" && "error" in body
+        ? String(
+            (body as { error?: { message?: string } }).error?.message ||
+              mapped.statusText,
+          )
+        : mapped.statusText;
+    if (retryAfter) {
+      return NextResponse.json(
+        {
+          error: {
+            message: message || "Request failed",
+            type: "api_error",
+            code: String(mapped.status),
+          },
+        },
+        { status: mapped.status, headers: { "Retry-After": retryAfter } },
+      );
+    }
+    return openaiError(mapped.status, message || "Request failed");
+  });
+}
 
 /**
  * OpenAI-compatible image generations (text → image).
@@ -20,10 +75,16 @@ const MIN_PER_IMAGE_USD = 0.03;
 export async function POST(req: Request) {
   const started = Date.now();
   const requestId = randomUUID();
+  let accountId: string | undefined;
+  let holdAmount = 0;
 
   try {
     const auth = await authenticateBearer(req.headers.get("authorization"));
+    accountId = auth.account.id;
+
     const modes = await getModeSettings();
+    assertRateLimit(auth.site.id, modes.rate_limit_per_minute);
+
     if (!modes.raw_mode_enabled) {
       throw new ModeForbiddenError("Raw mode is disabled by admin (global switch)");
     }
@@ -31,6 +92,19 @@ export async function POST(req: Request) {
       throw new ModeForbiddenError(
         "Raw mode is disabled for this site. Ask admin to enable site.raw_enabled.",
       );
+    }
+
+    const idemKey = readIdempotencyKey(req);
+    if (idemKey) {
+      const hit = await findIdempotentResponse(auth.site.id, idemKey);
+      if (hit) {
+        return NextResponse.json(hit.response_body, {
+          headers: {
+            "Idempotent-Replay": "true",
+            "X-Request-Id": hit.request_id,
+          },
+        });
+      }
     }
 
     const json = (await req.json().catch(() => null)) as {
@@ -65,7 +139,18 @@ export async function POST(req: Request) {
       );
     }
 
-    await assertCanSpend(auth.account.id);
+    holdAmount = estimateHoldCost({
+      inputPricePer1m: Number(model.input_price_per_1m),
+      outputPricePer1m: Number(model.output_price_per_1m),
+      imageCount: Math.max(n, 1),
+      minCostPerCall: Number(model.min_cost_per_call || 0),
+    });
+    await reserveHold({
+      accountId: auth.account.id,
+      amount: holdAmount,
+      requestId,
+    });
+
     const sql = getSql();
 
     let images: { b64_json: string; mediaType: string }[] = [];
@@ -87,6 +172,8 @@ export async function POST(req: Request) {
     } catch (err) {
       console.error("images/generations upstream error", requestId, err);
       const message = formatUpstreamError(err);
+      await releaseHold({ accountId: auth.account.id, amount: holdAmount });
+      holdAmount = 0;
       await sql`
         INSERT INTO usage_logs (
           request_id, site_id, account_id, task_code, model_id,
@@ -101,13 +188,17 @@ export async function POST(req: Request) {
       return openaiError(502, `Upstream model failed: ${message}`, "502");
     }
 
+    const minPer = Number(model.min_cost_per_call || 0);
     let cost = calcCost(
       inputTokens,
       outputTokens,
       Number(model.input_price_per_1m),
       Number(model.output_price_per_1m),
     );
-    cost = Math.max(cost, images.length * MIN_PER_IMAGE_USD);
+    cost = Math.max(
+      cost,
+      images.length * Math.max(minPer, 0.03),
+    );
     cost = Math.round(cost * 1_000_000) / 1_000_000;
 
     const logRows = await sql<{ id: string }[]>`
@@ -129,8 +220,12 @@ export async function POST(req: Request) {
         amount: cost,
         usageLogId: logRows[0].id,
         note: `images/generations:${model.model_id}`,
+        holdAmount,
       });
+      holdAmount = 0;
     } catch (err) {
+      await releaseHold({ accountId: auth.account.id, amount: holdAmount });
+      holdAmount = 0;
       await sql`
         UPDATE usage_logs
         SET status = 'rejected', error_code = '402', error_message = 'Insufficient balance after call'
@@ -146,7 +241,7 @@ export async function POST(req: Request) {
           }))
         : images.map((img) => ({ b64_json: img.b64_json }));
 
-    return NextResponse.json({
+    const body = {
       created: Math.floor(Date.now() / 1000),
       data,
       model: model.model_id,
@@ -157,17 +252,23 @@ export async function POST(req: Request) {
         total_tokens: totalTokens,
         cost,
       },
-    });
-  } catch (err) {
-    if (err instanceof ModeForbiddenError) {
-      return openaiError(err.status, err.message, err.code);
+    };
+
+    if (idemKey) {
+      await saveIdempotentResponse({
+        siteId: auth.site.id,
+        idemKey,
+        requestId,
+        responseStatus: 200,
+        responseBody: body,
+      });
     }
-    const mapped = handleApiError(err);
-    const body = await mapped.json().catch(() => null);
-    const message =
-      body && typeof body === "object" && "error" in body
-        ? String((body as { error?: { message?: string } }).error?.message || mapped.statusText)
-        : mapped.statusText;
-    return openaiError(mapped.status, message || "Request failed");
+
+    return NextResponse.json(body);
+  } catch (err) {
+    if (holdAmount > 0 && accountId) {
+      await releaseHold({ accountId, amount: holdAmount }).catch(() => undefined);
+    }
+    return mapOpenAiError(err);
   }
 }

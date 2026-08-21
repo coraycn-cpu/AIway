@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
+import { invalidatePromptCache } from "@/lib/prompts";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,7 @@ export async function POST(req: Request) {
       `;
     });
 
+    invalidatePromptCache();
     return jsonOk({
       ok: true,
       activated_id: prompt.id,

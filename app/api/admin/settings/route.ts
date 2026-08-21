@@ -25,12 +25,14 @@ export async function PATCH(req: Request) {
       .object({
         raw_mode_enabled: z.boolean().optional(),
         task_mode_enabled: z.boolean().optional(),
+        rate_limit_per_minute: z.number().int().positive().max(6000).optional(),
       })
       .safeParse(await req.json().catch(() => null));
     if (!body.success) return jsonError(400, "400", "Invalid settings payload");
     if (
       body.data.raw_mode_enabled === undefined &&
-      body.data.task_mode_enabled === undefined
+      body.data.task_mode_enabled === undefined &&
+      body.data.rate_limit_per_minute === undefined
     ) {
       return jsonError(400, "400", "No settings to update");
     }
