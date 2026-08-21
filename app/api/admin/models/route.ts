@@ -4,12 +4,14 @@ import { getSql } from "@/lib/db";
 import { handleApiError, jsonError, jsonOk } from "@/lib/api/errors";
 import { emptyToNull, ensureListIndexes, listMeta, parseListQuery } from "@/lib/admin/list-query";
 import { invalidateCatalogCache } from "@/lib/catalog";
+import { ensureRelayHardeningSchema } from "@/lib/db/ensure-relay-hardening";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
     await requireAdmin();
+    await ensureRelayHardeningSchema();
     await ensureListIndexes();
     const url = new URL(req.url);
     const { page, pageSize, offset, q } = parseListQuery(url, { pageSize: 50 });

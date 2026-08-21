@@ -1,4 +1,5 @@
 import { getSql } from "@/lib/db";
+import { ensureRelayHardeningSchema } from "@/lib/db/ensure-relay-hardening";
 
 export class BillingError extends Error {
   code: string;
@@ -23,6 +24,7 @@ export async function getMonthUsed(accountId: string) {
 }
 
 export async function assertCanSpend(accountId: string, estimatedCost = 0) {
+  await ensureRelayHardeningSchema();
   const sql = getSql();
   const rows = await sql<
     { balance: string; held_balance: string; month_quota: string | null; status: string }[]
@@ -97,6 +99,7 @@ export async function reserveHold(opts: {
   amount: number;
   requestId: string;
 }) {
+  await ensureRelayHardeningSchema();
   const amount = Math.round(Math.max(opts.amount, 0.001) * 1_000_000) / 1_000_000;
   const sql = getSql();
   return sql.begin(async (tx) => {

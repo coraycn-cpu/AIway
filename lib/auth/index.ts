@@ -4,6 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { getSql } from "@/lib/db";
 import type { Account, AdminUser, ApiToken, Site } from "@/lib/db/schema";
+import { ensureRelayHardeningSchema } from "@/lib/db/ensure-relay-hardening";
 
 const SESSION_COOKIE = "aiway_admin_session";
 const SESSION_TTL = "7d";
@@ -99,6 +100,8 @@ export async function authenticateBearer(authHeader: string | null): Promise<Aut
   }
   const token = authHeader.slice("Bearer ".length).trim();
   if (!token) throw new AuthError("Missing token", 401);
+
+  await ensureRelayHardeningSchema();
 
   const sql = getSql();
   const hash = hashApiToken(token);
