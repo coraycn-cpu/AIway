@@ -70,7 +70,8 @@ npm run db:migrate
 → [`docs/BUSINESS-SITE-INTEGRATION.md`](./docs/BUSINESS-SITE-INTEGRATION.md)  
 → https://www.ryfs.cn/api/docs/business-integration  
 → SDK：https://www.ryfs.cn/sdk/aiway-client.ts  
-→ 粘贴提示词：[`docs/CURSOR-HANDOFF.md`](./docs/CURSOR-HANDOFF.md)
+→ 业务站粘贴提示词：[`docs/CURSOR-HANDOFF.md`](./docs/CURSOR-HANDOFF.md)  
+→ Agent 会话交接：[`docs/CURSOR_HANDOFF.md`](./docs/CURSOR_HANDOFF.md)
 
 ## Vercel 部署步骤
 
